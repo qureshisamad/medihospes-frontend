@@ -10,8 +10,20 @@ const api = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
-// Attach token on every request
+// Attach token on every request and ensure trailing slashes on paths
 api.interceptors.request.use((config) => {
+  // Ensure URL path ends with / or has query params to avoid 307 redirects
+  if (config.url && !config.url.includes("?")) {
+    if (!config.url.endsWith("/")) {
+      config.url += "/";
+    }
+  } else if (config.url && config.url.includes("?")) {
+    const [path, query] = config.url.split("?");
+    if (!path.endsWith("/")) {
+      config.url = path + "/?" + query;
+    }
+  }
+
   if (typeof window !== "undefined") {
     const token = localStorage.getItem("access_token");
     if (token) {
