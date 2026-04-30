@@ -1,15 +1,17 @@
 /** Shared TypeScript types matching the backend schemas. */
 
 export type UserRole = "staff" | "admin";
-export type JobTitle =
-  | "administrative"
-  | "nurse"
-  | "doctor"
-  | "technician"
-  | "support";
 export type ContractType = "part_time" | "full_time";
 export type ShiftType = "morning" | "evening" | "night";
 export type BookingStatus = "confirmed" | "cancelled";
+
+export interface JobTitleRecord {
+  id: number;
+  name: string;
+  label: string;
+  is_active: boolean;
+  created_at: string;
+}
 
 export interface User {
   id: number;
@@ -18,7 +20,7 @@ export interface User {
   last_name: string;
   codice_fiscale: string | null;
   role: UserRole;
-  job_title: JobTitle;
+  job_title: string;
   contract_type: ContractType;
   weekly_hour_limit: number;
   is_active: boolean;
@@ -30,13 +32,15 @@ export interface Clinic {
   name: string;
   code: string;
   address: string | null;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 export interface Shift {
   id: number;
   clinic_id: number;
   clinic_name: string | null;
-  required_role: JobTitle;
+  required_role: string;
   shift_type: ShiftType;
   start_time: string;
   end_time: string;
@@ -71,7 +75,7 @@ export interface BookingDetail {
   user_id: number;
   first_name: string;
   last_name: string;
-  job_title: JobTitle;
+  job_title: string;
   status: string;
   booked_at: string;
   attendance_status: AttendanceStatus;

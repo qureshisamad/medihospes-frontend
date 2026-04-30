@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { MapPin, Plus } from "lucide-react";
+import { MapPin, Plus, RotateCw } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "@/lib/api";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
+import ClinicMap from "@/components/ui/ClinicMap";
 import type { Clinic } from "@/lib/types";
 
 export default function AdminClinicsPage() {
@@ -14,6 +15,7 @@ export default function AdminClinicsPage() {
   const [showForm, setShowForm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({ name: "", code: "", address: "" });
+  const [geocoding, setGeocoding] = useState<number | null>(null);
 
   const fetchClinics = () => {
     api.get("/clinics").then((r) => setClinics(r.data));
@@ -38,6 +40,25 @@ export default function AdminClinicsPage() {
       setLoading(false);
     }
   };
+
+  const handleGeocode = async (clinicId: number) => {
+    setGeocoding(clinicId);
+    try {
+      await api.post(`/clinics/${clinicId}/geocode`);
+      toast.success("Location found!");
+      fetchClinics();
+    } catch (err: any) {
+      toast.error(
+        err.response?.data?.detail || "Could not find location for this address"
+      );
+    } finally {
+      setGeocoding(null);
+    }
+  };
+
+  const hasMapData = clinics.some(
+    (c) => c.latitude != null && c.longitude != null
+  );
 
   return (
     <div className="space-y-6">
@@ -93,6 +114,9 @@ export default function AdminClinicsPage() {
         </Card>
       )}
 
+      {/* Map */}
+      {hasMapData && <ClinicMap clinics={clinics} />}
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {clinics.map((c) => (
           <Card key={c.id}>
@@ -100,12 +124,29 @@ export default function AdminClinicsPage() {
               <div className="rounded-lg bg-primary-50 p-2">
                 <MapPin size={20} className="text-primary-500" />
               </div>
-              <div>
+              <div className="flex-1 min-w-0">
                 <h3 className="font-semibold text-neutral-900">{c.name}</h3>
                 <p className="text-sm text-neutral-500">{c.code}</p>
                 {c.address && (
                   <p className="text-xs text-neutral-500 mt-1">{c.address}</p>
                 )}
+                {c.latitude != null && c.longitude != null ? (
+                  <p className="text-xs text-success-700 mt-1">
+                    📍 Location mapped
+                  </p>
+                ) : c.address ? (
+                  <button
+                    onClick={() => handleGeocode(c.id)}
+                    disabled={geocoding === c.id}
+                    className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-primary-50 px-3 py-1.5 text-xs font-medium text-primary-600 hover:bg-primary-100 transition-colors disabled:opacity-50"
+                  >
+                    <RotateCw
+                      size={12}
+                      className={geocoding === c.id ? "animate-spin" : ""}
+                    />
+                    Find on map
+                  </button>
+                ) : null}
               </div>
             </div>
           </Card>

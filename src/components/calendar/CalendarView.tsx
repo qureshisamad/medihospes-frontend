@@ -28,7 +28,7 @@ import WeeklyCalendar from "./WeeklyCalendar";
 import WeeklyHourIndicator from "./WeeklyHourIndicator";
 import ShiftDetailPanel from "./ShiftDetailPanel";
 import Button from "@/components/ui/Button";
-import type { Shift, Clinic, JobTitle } from "@/lib/types";
+import type { Shift, Clinic, JobTitleRecord } from "@/lib/types";
 
 type ViewMode = "monthly" | "weekly";
 
@@ -36,14 +36,6 @@ interface CalendarViewProps {
   isAdmin: boolean;
   onShiftClick?: (shift: Shift) => void;
 }
-
-const JOB_TITLES: JobTitle[] = [
-  "administrative",
-  "nurse",
-  "doctor",
-  "technician",
-  "support",
-];
 
 export default function CalendarView({ isAdmin }: CalendarViewProps) {
   const { user } = useAuthStore();
@@ -54,6 +46,7 @@ export default function CalendarView({ isAdmin }: CalendarViewProps) {
 
   // Filter state
   const [clinics, setClinics] = useState<Clinic[]>([]);
+  const [jobTitles, setJobTitles] = useState<JobTitleRecord[]>([]);
   const [selectedClinicId, setSelectedClinicId] = useState<number | undefined>(
     undefined
   );
@@ -69,13 +62,19 @@ export default function CalendarView({ isAdmin }: CalendarViewProps) {
   const [selectedShiftId, setSelectedShiftId] = useState<number | null>(null);
   const [claiming, setClaiming] = useState(false);
 
-  // Load clinics once
+  // Load clinics and job titles once
   useEffect(() => {
     api
       .get<Clinic[]>("/clinics")
       .then((r) => setClinics(r.data))
       .catch(() => {
         /* clinics filter will just be empty */
+      });
+    api
+      .get<JobTitleRecord[]>("/job-titles?is_active=true")
+      .then((r) => setJobTitles(r.data))
+      .catch(() => {
+        /* job titles filter will just be empty */
       });
   }, []);
 
@@ -291,9 +290,9 @@ export default function CalendarView({ isAdmin }: CalendarViewProps) {
                 aria-label="Filter by role"
               >
                 <option value="">All roles</option>
-                {JOB_TITLES.map((role) => (
-                  <option key={role} value={role}>
-                    {role}
+                {jobTitles.map((jt) => (
+                  <option key={jt.name} value={jt.name}>
+                    {jt.label}
                   </option>
                 ))}
               </select>

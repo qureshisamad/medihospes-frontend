@@ -2,15 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import dynamic from "next/dynamic";
+import { Toaster } from "react-hot-toast";
 import { useAuthStore } from "@/lib/store";
 import Sidebar from "./Sidebar";
-
-// Load Toaster only on the client to avoid hydration mismatch from portals
-const Toaster = dynamic(
-  () => import("react-hot-toast").then((mod) => mod.Toaster),
-  { ssr: false }
-);
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const { user, hydrate } = useAuthStore();
@@ -31,8 +25,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [mounted, user, router]);
 
-  // Render a consistent shell on both server and client to avoid hydration mismatch.
-  // The loading state only shows after mount confirms there's no user.
   if (!mounted || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-neutral-50">

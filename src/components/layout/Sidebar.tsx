@@ -4,12 +4,15 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Bell,
+  Briefcase,
   Calendar,
   Clock,
   LayoutDashboard,
+  Lock,
   LogOut,
   MapPin,
   FileBarChart,
+  Users,
 } from "lucide-react";
 import { useAuthStore } from "@/lib/store";
 import NotificationBadge from "./NotificationBadge";
@@ -21,17 +24,19 @@ const staffLinks = [
   { href: "/time-clock", label: "Time Clock", icon: Clock },
 ];
 
-const adminLinks = [
+const adminOnlyLinks = [
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/admin/shifts", label: "Manage Shifts", icon: Calendar },
+  { href: "/admin/users", label: "Users", icon: Users },
+  { href: "/admin/job-titles", label: "Job Titles", icon: Briefcase },
   { href: "/admin/clinics", label: "Clinics", icon: MapPin },
-  { href: "/admin/reports", label: "Reports", icon: FileBarChart },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
   const { user, logout } = useAuthStore();
   const isAdmin = user?.role === "admin";
-  const links = isAdmin ? [...staffLinks, ...adminLinks] : staffLinks;
+  const links = isAdmin ? adminOnlyLinks : staffLinks;
 
   return (
     <>
@@ -62,11 +67,22 @@ export default function Sidebar() {
             );
           })}
 
-          {/* Notification bell */}
-          <div className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-neutral-700">
+          {/* Coming soon items */}
+          <div className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-neutral-300 cursor-default">
+            <FileBarChart size={20} />
+            <span>Reports</span>
+            <span className="ml-auto flex items-center gap-1 rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-medium text-neutral-400">
+              <Lock size={10} />
+              Soon
+            </span>
+          </div>
+          <div className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-neutral-300 cursor-default">
             <Bell size={20} />
             <span>Notifications</span>
-            <NotificationBadge />
+            <span className="ml-auto flex items-center gap-1 rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-medium text-neutral-400">
+              <Lock size={10} />
+              Soon
+            </span>
           </div>
         </nav>
 
@@ -105,13 +121,11 @@ export default function Sidebar() {
             );
           })}
 
-          {/* Notification bell for mobile */}
-          <div className="flex flex-col items-center gap-0.5 px-3 py-1.5 text-xs text-neutral-500 relative">
+          {/* Notifications — coming soon */}
+          <div className="flex flex-col items-center gap-0.5 px-3 py-1.5 text-xs text-neutral-300">
             <div className="relative">
               <Bell size={22} />
-              <span className="absolute -top-1 -right-2">
-                <NotificationBadge />
-              </span>
+              <Lock size={8} className="absolute -top-0.5 -right-1 text-neutral-400" />
             </div>
             <span>Alerts</span>
           </div>
