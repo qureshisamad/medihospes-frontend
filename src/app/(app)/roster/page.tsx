@@ -110,8 +110,8 @@ export default function RosterPage() {
   };
 
   const months = [
-    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
   ];
 
   return (
@@ -138,7 +138,8 @@ export default function RosterPage() {
           <select
             value={month}
             onChange={(e) => setMonth(Number(e.target.value))}
-            className="h-10 rounded-lg border border-neutral-300 px-3 text-sm"
+            translate="no"
+            className="notranslate h-10 rounded-lg border border-neutral-300 px-3 text-sm"
           >
             {months.map((m, i) => (
               <option key={m} value={i + 1}>{m}</option>
