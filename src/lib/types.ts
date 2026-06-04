@@ -1,9 +1,32 @@
-/** Shared TypeScript types matching the backend schemas. */
+/** Shared TypeScript types matching the v2 backend schemas. */
 
-export type UserRole = "staff" | "admin";
+export type UserRole = "manager" | "hr";
 export type ContractType = "part_time" | "full_time";
-export type ShiftType = "morning" | "evening" | "night";
-export type BookingStatus = "confirmed" | "cancelled";
+
+/** Absence / substitution category codes (req v2.0 §1.5). */
+export type AbsenceCode = "B" | "B1" | "B2" | "C1" | "C2" | "SOL";
+
+export const ABSENCE_LABELS: Record<AbsenceCode, string> = {
+  B: "Vacation",
+  B1: "Sick leave",
+  B2: "Temp transfer",
+  C1: "Fixed sub",
+  C2: "Variable sub",
+  SOL: "Solidarity (20H)",
+};
+
+/** Kept for the Badge component (shift codes are free-form strings now). */
+export type ShiftType = string;
+
+export interface User {
+  id: number;
+  email: string;
+  first_name: string;
+  last_name: string;
+  role: UserRole;
+  is_active: boolean;
+  created_at: string;
+}
 
 export interface JobTitleRecord {
   id: number;
@@ -13,94 +36,83 @@ export interface JobTitleRecord {
   created_at: string;
 }
 
-export interface User {
+export interface Department {
   id: number;
-  email: string;
-  first_name: string;
-  last_name: string;
-  codice_fiscale: string | null;
-  role: UserRole;
-  job_title: string;
-  contract_type: ContractType;
-  weekly_hour_limit: number;
-  is_active: boolean;
-  created_at: string;
+  name: string;
+  code: string;
 }
 
-export interface Clinic {
+export interface Site {
   id: number;
   name: string;
   code: string;
   address: string | null;
-  latitude: number | null;
-  longitude: number | null;
 }
 
-export interface Shift {
+export interface ShiftTypeDef {
   id: number;
-  clinic_id: number;
-  clinic_name: string | null;
-  required_role: string;
-  shift_type: ShiftType;
-  start_time: string;
+  code: string;
+  name: string;
+  start_time: string; // "HH:MM:SS"
   end_time: string;
-  max_capacity: number;
-  current_bookings: number;
+  duration_hours: number;
+  crosses_midnight: boolean;
   notes: string | null;
-  created_by: number;
-  created_at: string;
+  is_active: boolean;
 }
 
-export interface Booking {
+export interface Employee {
   id: number;
-  shift_id: number;
-  user_id: number;
-  status: BookingStatus;
-  booked_at: string;
-  shift?: Shift;
-}
-
-// --- Calendar Shift Management types ---
-
-export type NotificationType = "new_shift" | "booking_confirmed";
-
-export type AttendanceStatus =
-  | "not_started"
-  | "missing_clock_in"
-  | "in_progress"
-  | "completed";
-
-export interface BookingDetail {
-  id: number;
-  user_id: number;
   first_name: string;
   last_name: string;
+  codice_fiscale: string | null;
+  department_id: number;
+  site_id: number | null;
   job_title: string;
-  status: string;
-  booked_at: string;
-  attendance_status: AttendanceStatus;
-  actual_hours: number | null;
-}
-
-export interface ShiftDetail extends Shift {
-  creator_name: string;
-  bookings: BookingDetail[];
-}
-
-export interface WeeklyHours {
-  week_start: string;
-  week_end: string;
-  booked_hours: number;
-  weekly_hour_limit: number;
-  remaining_hours: number;
-}
-
-export interface Notification {
-  id: number;
-  notification_type: NotificationType;
-  title: string;
-  message: string;
-  related_shift_id: number | null;
-  is_read: boolean;
+  location: string | null;
+  contract_type: ContractType;
+  monthly_hour_limit: number;
+  flexible_shift: boolean;
+  flexible_location: boolean;
+  is_active: boolean;
   created_at: string;
+  coverable_roles: string[];
+}
+
+export interface RosterCell {
+  id: number;
+  employee_id: number;
+  work_date: string; // YYYY-MM-DD
+  shift_type_id: number | null;
+  absence_code: AbsenceCode | null;
+  site_id: number | null;
+  substitutes_for_id: number | null;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface SubstituteCandidate {
+  employee_id: number;
+  name: string;
+  job_title: string;
+  is_cross_role: boolean;
+  booked_hours: number;
+  monthly_hour_limit: number;
+  remaining_hours: number;
+  would_cause_overtime: boolean;
+}
+
+export interface EmployeeHours {
+  employee_id: number;
+  name: string;
+  job_title: string;
+  department: string;
+  contract_type: string;
+  monthly_hour_limit: number;
+  worked_hours: number;
+  overtime_hours: number;
+  remaining_hours: number;
+  utilisation_pct: number;
+  approaching_limit: boolean;
+  over_limit: boolean;
 }

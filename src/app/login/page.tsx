@@ -190,19 +190,14 @@ export default function LoginPage() {
             </summary>
             <div className="border-t border-neutral-200 px-4 py-3 space-y-3 text-sm">
               <div>
-                <p className="text-xs font-medium text-neutral-500 uppercase tracking-wide mb-1">Admin</p>
-                <p className="text-neutral-700">admin@medihospes.it</p>
-                <p className="text-neutral-500">admin123</p>
+                <p className="text-xs font-medium text-neutral-500 uppercase tracking-wide mb-1">Manager</p>
+                <p className="text-neutral-700">manager@medihospes.it</p>
+                <p className="text-neutral-500">manager123</p>
               </div>
               <div>
-                <p className="text-xs font-medium text-neutral-500 uppercase tracking-wide mb-1">Nurse (Staff)</p>
-                <p className="text-neutral-700">nurse@medihospes.it</p>
-                <p className="text-neutral-500">staff123</p>
-              </div>
-              <div>
-                <p className="text-xs font-medium text-neutral-500 uppercase tracking-wide mb-1">Technician (Staff)</p>
-                <p className="text-neutral-700">tech@medihospes.it</p>
-                <p className="text-neutral-500">staff123</p>
+                <p className="text-xs font-medium text-neutral-500 uppercase tracking-wide mb-1">HR</p>
+                <p className="text-neutral-700">hr@medihospes.it</p>
+                <p className="text-neutral-500">hr123</p>
               </div>
             </div>
           </details>
