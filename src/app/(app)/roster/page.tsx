@@ -283,10 +283,7 @@ export default function RosterPage() {
           departmentId={departmentId}
           activeJobTitle={jobTitle}
           onClose={() => setShowAutoFill(false)}
-          onDone={() => {
-            setShowAutoFill(false);
-            loadRoster();
-          }}
+          onReload={loadRoster}
         />
       )}
 
@@ -501,7 +498,7 @@ function AutoFillModal({
   departmentId,
   activeJobTitle,
   onClose,
-  onDone,
+  onReload,
 }: {
   rotations: RotationPattern[];
   shiftTypes: ShiftTypeDef[];
@@ -512,10 +509,11 @@ function AutoFillModal({
   departmentId: number | "";
   activeJobTitle: string;
   onClose: () => void;
-  onDone: () => void;
+  onReload: () => void;
 }) {
   const [running, setRunning] = useState(false);
   const [autoStagger, setAutoStagger] = useState(true);
+  const [result, setResult] = useState<AutoFillResult | null>(null);
 
   const codeOf = (id: number) => shiftTypes.find((s) => s.id === id)?.code ?? "?";
   const labelOf = (jt: string) =>
@@ -528,6 +526,7 @@ function AutoFillModal({
 
   const run = async (pattern: RotationPattern) => {
     setRunning(true);
+    setResult(null);
     try {
       const res = await api.post("/roster/auto-fill", {
         year,
@@ -537,26 +536,15 @@ function AutoFillModal({
         ...(departmentId !== "" ? { department_id: departmentId } : {}),
       });
       const r = res.data as AutoFillResult;
+      setResult(r);
       if (r.employees_filled === 0) {
-        toast.error(
-          autoStagger
-            ? "No employees found for this category."
-            : "No one was filled. Assign each employee a shift on day 1 first."
-        );
+        toast.error("No employees were scheduled for this category.");
       } else {
         toast.success(
           `Filled ${r.filled_cells} cells for ${r.employees_filled} employee(s).`
         );
-        if (r.skipped.length) {
-          toast(`Skipped (no day-1 shift): ${r.skipped.join(", ")}`, {
-            icon: "⚠️",
-          });
-        }
-        for (const w of r.warnings ?? []) {
-          toast(w, { icon: "⚠️", duration: 6000 });
-        }
       }
-      onDone();
+      onReload(); // refresh the grid behind the modal
     } catch (e: any) {
       toast.error(e.response?.data?.detail?.toString() || "Auto-fill failed");
     } finally {
@@ -573,9 +561,9 @@ function AutoFillModal({
               Auto-fill {monthLabel} {year}
             </h3>
             <p className="mt-1 text-sm text-neutral-500">
-              Fills the whole month by advancing each employee through the cycle.
-              Absences you&apos;ve already entered are kept, and every cell stays
-              editable afterwards.
+              Fills the whole month for the category, respecting contract hours
+              and rest between shifts. Absences you&apos;ve entered are kept and
+              every cell stays editable afterwards.
             </p>
           </div>
           <button
@@ -586,24 +574,25 @@ function AutoFillModal({
           </button>
         </div>
 
-        <label className="mt-4 flex items-start gap-2 rounded-lg bg-neutral-50 p-3 text-sm">
-          <input
-            type="checkbox"
-            checked={autoStagger}
-            onChange={(e) => setAutoStagger(e.target.checked)}
-            className="mt-0.5"
-          />
-          <span>
-            <span className="font-medium text-neutral-800">
-              Stagger starts automatically (recommended)
+        {ordered.some((p) => p.coverage.length === 0) && (
+          <label className="mt-4 flex items-start gap-2 rounded-lg bg-neutral-50 p-3 text-sm">
+            <input
+              type="checkbox"
+              checked={autoStagger}
+              onChange={(e) => setAutoStagger(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              <span className="font-medium text-neutral-800">
+                Stagger starts automatically
+              </span>
+              <span className="block text-xs text-neutral-500">
+                Only used for cycle rotations that have no coverage defined.
+                Gives each employee a different starting shift.
+              </span>
             </span>
-            <span className="block text-xs text-neutral-500">
-              Each employee gets a different starting shift so coverage is
-              balanced — no two people get the same schedule. Uncheck to use the
-              day-1 shift you entered for each employee instead.
-            </span>
-          </span>
-        </label>
+          </label>
+        )}
 
         <div className="mt-4 space-y-3">
           {ordered.length === 0 && (
@@ -612,42 +601,103 @@ function AutoFillModal({
               <b>Rotations</b>.
             </p>
           )}
-          {ordered.map((p) => (
-            <div
-              key={p.id}
-              className="rounded-lg border border-neutral-200 p-3"
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="font-medium text-neutral-900">{p.name}</div>
-                  <div className="text-xs text-neutral-500">
-                    {labelOf(p.job_title)}
+          {ordered.map((p) => {
+            const coverageMode = p.coverage.length > 0;
+            return (
+              <div
+                key={p.id}
+                className="rounded-lg border border-neutral-200 p-3"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-medium text-neutral-900">{p.name}</div>
+                    <div className="text-xs text-neutral-500">
+                      {labelOf(p.job_title)}
+                      {coverageMode && ` · min rest ${p.min_rest_hours}h`}
+                    </div>
                   </div>
+                  <Button
+                    onClick={() => run(p)}
+                    loading={running}
+                    disabled={running}
+                  >
+                    Fill month
+                  </Button>
                 </div>
-                <Button
-                  onClick={() => run(p)}
-                  loading={running}
-                  disabled={running}
-                >
-                  Fill month
-                </Button>
+                <div className="mt-2 flex flex-wrap items-center gap-1">
+                  {coverageMode ? (
+                    <>
+                      {p.coverage.map((c, i) => (
+                        <span
+                          key={i}
+                          className="rounded bg-primary-50 px-2 py-0.5 text-xs font-semibold text-primary-700"
+                        >
+                          {c.required_count}× {codeOf(c.shift_type_id)}
+                        </span>
+                      ))}
+                      <span className="ml-1 text-[11px] text-neutral-400">
+                        (daily coverage)
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      {p.shift_type_ids.map((id, i) => (
+                        <span key={i} className="flex items-center gap-1">
+                          {i > 0 && <span className="text-neutral-300">→</span>}
+                          <span className="rounded bg-primary-50 px-2 py-0.5 text-xs font-semibold text-primary-700">
+                            {codeOf(id)}
+                          </span>
+                        </span>
+                      ))}
+                      <span className="ml-1 text-[11px] text-neutral-400">
+                        ({p.shift_type_ids.length}-day cycle)
+                      </span>
+                    </>
+                  )}
+                </div>
               </div>
-              <div className="mt-2 flex flex-wrap items-center gap-1">
-                {p.shift_type_ids.map((id, i) => (
-                  <span key={i} className="flex items-center gap-1">
-                    {i > 0 && <span className="text-neutral-300">→</span>}
-                    <span className="rounded bg-primary-50 px-2 py-0.5 text-xs font-semibold text-primary-700">
-                      {codeOf(id)}
-                    </span>
-                  </span>
-                ))}
-                <span className="ml-1 text-[11px] text-neutral-400">
-                  ({p.shift_type_ids.length}-day cycle)
-                </span>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
+
+        {result && (
+          <div className="mt-4 space-y-3 border-t border-neutral-200 pt-4">
+            <div className="rounded-lg bg-success-50 px-3 py-2 text-sm text-success-700">
+              Filled <b>{result.filled_cells}</b> cells for{" "}
+              <b>{result.employees_filled}</b> employee(s).
+            </div>
+
+            {result.unmet.length > 0 && (
+              <div className="rounded-lg bg-danger-50 px-3 py-2 text-sm text-danger-600">
+                <div className="font-medium">
+                  {result.unmet.length} shift slot(s) could not be staffed within
+                  the rest / hour rules — fill these manually:
+                </div>
+                <ul className="mt-1 max-h-40 list-disc overflow-y-auto pl-5 text-xs">
+                  {result.unmet.map((u, i) => (
+                    <li key={i}>{u}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {result.warnings.length > 0 && (
+              <div className="rounded-lg bg-warning-50 px-3 py-2 text-xs text-warning-700">
+                <ul className="list-disc pl-5">
+                  {result.warnings.map((w, i) => (
+                    <li key={i}>{w}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {result.skipped.length > 0 && (
+              <div className="text-xs text-neutral-500">
+                Skipped (no day-1 shift): {result.skipped.join(", ")}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="mt-5 flex justify-end">
           <Button variant="ghost" onClick={onClose}>

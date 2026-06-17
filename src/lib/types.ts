@@ -102,12 +102,19 @@ export interface SubstituteCandidate {
   would_cause_overtime: boolean;
 }
 
+export interface CoverageItem {
+  shift_type_id: number;
+  required_count: number;
+}
+
 export interface RotationPattern {
   id: number;
   name: string;
   job_title: string;
   is_active: boolean;
   shift_type_ids: number[];
+  min_rest_hours: number;
+  coverage: CoverageItem[];
 }
 
 export interface AutoFillResult {
@@ -115,6 +122,7 @@ export interface AutoFillResult {
   employees_filled: number;
   skipped: string[];
   warnings: string[];
+  unmet: string[];
 }
 
 export interface EmployeeHours {

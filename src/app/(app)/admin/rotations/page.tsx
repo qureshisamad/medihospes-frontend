@@ -159,6 +159,12 @@ function RotationEditor({
   );
   const [cycle, setCycle] = useState<number[]>(pattern?.shift_type_ids ?? []);
   const [addId, setAddId] = useState<number | "">(shiftTypes[0]?.id ?? "");
+  const [minRest, setMinRest] = useState(String(pattern?.min_rest_hours ?? 11));
+  const [coverage, setCoverage] = useState<Record<number, number>>(
+    Object.fromEntries(
+      (pattern?.coverage ?? []).map((c) => [c.shift_type_id, c.required_count])
+    )
+  );
   const [saving, setSaving] = useState(false);
 
   const codeOf = (id: number) => shiftTypes.find((s) => s.id === id)?.code ?? "?";
@@ -180,9 +186,18 @@ function RotationEditor({
   const save = async () => {
     if (!name.trim()) return toast.error("Name is required");
     if (!jobTitle) return toast.error("Pick a category");
-    if (cycle.length === 0) return toast.error("Add at least one shift to the cycle");
+    if (cycle.length === 0) return toast.error("Add at least one shift to the palette");
     setSaving(true);
-    const payload = { name, job_title: jobTitle, shift_type_ids: cycle };
+    const cov = Object.entries(coverage)
+      .filter(([, n]) => Number(n) > 0)
+      .map(([id, n]) => ({ shift_type_id: Number(id), required_count: Number(n) }));
+    const payload = {
+      name,
+      job_title: jobTitle,
+      shift_type_ids: cycle,
+      min_rest_hours: Number(minRest) || 0,
+      coverage: cov,
+    };
     try {
       if (pattern) {
         await api.put(`/rotations/${pattern.id}`, payload);
@@ -295,6 +310,54 @@ function RotationEditor({
         <Button variant="secondary" onClick={addStep}>
           <Plus size={16} /> Add step
         </Button>
+      </div>
+
+      <p className="mt-6 mb-1 text-xs font-medium uppercase text-neutral-500">
+        Daily coverage (people needed per shift, per day)
+      </p>
+      <p className="mb-2 text-xs text-neutral-400">
+        Set how many people each shift needs each day. When any coverage is set,
+        auto-fill becomes coverage-driven — it staffs to these numbers while
+        respecting contract hours and rest between shifts. Leave all at 0 to use
+        a simple staggered cycle instead.
+      </p>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {shiftTypes.map((s) => (
+          <div
+            key={s.id}
+            className="flex items-center justify-between rounded-lg border border-neutral-200 px-3 py-2"
+          >
+            <span className="text-sm">
+              <span className="font-semibold text-primary-700">{s.code}</span>{" "}
+              <span className="text-neutral-500">{s.name}</span>
+            </span>
+            <input
+              type="number"
+              min={0}
+              value={coverage[s.id] ?? 0}
+              onChange={(e) =>
+                setCoverage({ ...coverage, [s.id]: Number(e.target.value) })
+              }
+              className="h-8 w-16 rounded border border-neutral-300 px-2 text-sm"
+            />
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4 max-w-xs">
+        <Input
+          label="Minimum rest between shifts (hours)"
+          type="number"
+          step="0.5"
+          min="0"
+          value={minRest}
+          onChange={(e) => setMinRest(e.target.value)}
+        />
+        <p className="mt-1 text-xs text-neutral-400">
+          Blocks a shift that starts less than this long after the previous one
+          ends (e.g. 11h stops a morning right after a night shift). Used in
+          coverage-driven mode.
+        </p>
       </div>
 
       <div className="mt-6 flex gap-3">
