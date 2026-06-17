@@ -2,16 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { Download, X } from "lucide-react";
+import { Download, Repeat, X } from "lucide-react";
 import api from "@/lib/api";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import {
   ABSENCE_LABELS,
   type AbsenceCode,
+  type AutoFillResult,
   type Department,
   type Employee,
+  type JobTitleRecord,
   type RosterCell,
+  type RotationPattern,
   type ShiftTypeDef,
   type SubstituteCandidate,
 } from "@/lib/types";
@@ -27,12 +30,16 @@ export default function RosterPage() {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [departmentId, setDepartmentId] = useState<number | "">("");
+  const [jobTitle, setJobTitle] = useState<string>("");
 
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [jobTitles, setJobTitles] = useState<JobTitleRecord[]>([]);
+  const [rotations, setRotations] = useState<RotationPattern[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [shiftTypes, setShiftTypes] = useState<ShiftTypeDef[]>([]);
   const [cells, setCells] = useState<RosterCell[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showAutoFill, setShowAutoFill] = useState(false);
 
   const [editing, setEditing] = useState<{ emp: Employee; day: number } | null>(
     null
@@ -45,13 +52,13 @@ export default function RosterPage() {
 
   const loadRoster = useCallback(() => {
     setLoading(true);
-    const params: Record<string, unknown> = { year, month };
-    if (departmentId !== "") params.department_id = departmentId;
+    const scope = {
+      ...(departmentId !== "" ? { department_id: departmentId } : {}),
+      ...(jobTitle !== "" ? { job_title: jobTitle } : {}),
+    };
     Promise.all([
-      api.get("/employees", {
-        params: { is_active: true, ...(departmentId !== "" ? { department_id: departmentId } : {}) },
-      }),
-      api.get("/roster", { params }),
+      api.get("/employees", { params: { is_active: true, ...scope } }),
+      api.get("/roster", { params: { year, month, ...scope } }),
     ])
       .then(([e, r]) => {
         setEmployees(e.data);
@@ -59,10 +66,18 @@ export default function RosterPage() {
       })
       .catch(() => toast.error("Failed to load roster"))
       .finally(() => setLoading(false));
-  }, [year, month, departmentId]);
+  }, [year, month, departmentId, jobTitle]);
 
   useEffect(() => {
     api.get("/departments").then((r) => setDepartments(r.data)).catch(() => {});
+    api
+      .get("/job-titles", { params: { is_active: true } })
+      .then((r) => setJobTitles(r.data))
+      .catch(() => {});
+    api
+      .get("/rotations", { params: { is_active: true } })
+      .then((r) => setRotations(r.data))
+      .catch(() => {});
     api
       .get("/shift-types", { params: { is_active: true } })
       .then((r) => setShiftTypes(r.data))
@@ -124,6 +139,9 @@ export default function RosterPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button onClick={() => setShowAutoFill(true)}>
+            <Repeat size={16} /> Auto-fill from rotation
+          </Button>
           <Button variant="secondary" onClick={() => download("xlsx")}>
             <Download size={16} /> Excel
           </Button>
@@ -164,6 +182,16 @@ export default function RosterPage() {
             <option value="">All departments</option>
             {departments.map((d) => (
               <option key={d.id} value={d.id}>{d.name}</option>
+            ))}
+          </select>
+          <select
+            value={jobTitle}
+            onChange={(e) => setJobTitle(e.target.value)}
+            className="h-10 rounded-lg border border-neutral-300 px-3 text-sm"
+          >
+            <option value="">All categories</option>
+            {jobTitles.map((j) => (
+              <option key={j.id} value={j.name}>{j.label}</option>
             ))}
           </select>
         </div>
@@ -242,6 +270,24 @@ export default function RosterPage() {
             </tbody>
           </table>
         </Card>
+      )}
+
+      {showAutoFill && (
+        <AutoFillModal
+          rotations={rotations}
+          shiftTypes={shiftTypes}
+          jobTitles={jobTitles}
+          year={year}
+          month={month}
+          monthLabel={months[month - 1]}
+          departmentId={departmentId}
+          activeJobTitle={jobTitle}
+          onClose={() => setShowAutoFill(false)}
+          onDone={() => {
+            setShowAutoFill(false);
+            loadRoster();
+          }}
+        />
       )}
 
       {editing && (
@@ -439,6 +485,149 @@ function CellEditor({
               Clear cell
             </Button>
           )}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function AutoFillModal({
+  rotations,
+  shiftTypes,
+  jobTitles,
+  year,
+  month,
+  monthLabel,
+  departmentId,
+  activeJobTitle,
+  onClose,
+  onDone,
+}: {
+  rotations: RotationPattern[];
+  shiftTypes: ShiftTypeDef[];
+  jobTitles: JobTitleRecord[];
+  year: number;
+  month: number;
+  monthLabel: string;
+  departmentId: number | "";
+  activeJobTitle: string;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [running, setRunning] = useState(false);
+
+  const codeOf = (id: number) => shiftTypes.find((s) => s.id === id)?.code ?? "?";
+  const labelOf = (jt: string) =>
+    jobTitles.find((j) => j.name === jt)?.label ?? jt;
+
+  // Show the rotation(s) for the active category first, if one is filtered.
+  const ordered = [...rotations].sort((a, b) =>
+    a.job_title === activeJobTitle ? -1 : b.job_title === activeJobTitle ? 1 : 0
+  );
+
+  const run = async (pattern: RotationPattern) => {
+    setRunning(true);
+    try {
+      const res = await api.post("/roster/auto-fill", {
+        year,
+        month,
+        pattern_id: pattern.id,
+        ...(departmentId !== "" ? { department_id: departmentId } : {}),
+      });
+      const r = res.data as AutoFillResult;
+      if (r.employees_filled === 0) {
+        toast.error(
+          "No one was filled. Assign each employee a shift on day 1 first."
+        );
+      } else {
+        toast.success(
+          `Filled ${r.filled_cells} cells for ${r.employees_filled} employee(s).`
+        );
+        if (r.skipped.length) {
+          toast(`Skipped (no day-1 shift): ${r.skipped.join(", ")}`, {
+            icon: "⚠️",
+          });
+        }
+      }
+      onDone();
+    } catch (e: any) {
+      toast.error(e.response?.data?.detail?.toString() || "Auto-fill failed");
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <Card className="w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="flex items-start justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-neutral-900">
+              Auto-fill {monthLabel} {year}
+            </h3>
+            <p className="mt-1 text-sm text-neutral-500">
+              Set each employee&apos;s shift on <b>day 1</b>, then pick their
+              rotation below. The rest of the month is filled by advancing each
+              person through the cycle. Absences you&apos;ve already entered are
+              kept, and every cell stays editable.
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-neutral-400 hover:text-neutral-700"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="mt-4 space-y-3">
+          {ordered.length === 0 && (
+            <p className="text-sm text-neutral-500">
+              No rotation libraries defined yet. Create one under{" "}
+              <b>Rotations</b>.
+            </p>
+          )}
+          {ordered.map((p) => (
+            <div
+              key={p.id}
+              className="rounded-lg border border-neutral-200 p-3"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-medium text-neutral-900">{p.name}</div>
+                  <div className="text-xs text-neutral-500">
+                    {labelOf(p.job_title)}
+                  </div>
+                </div>
+                <Button
+                  onClick={() => run(p)}
+                  loading={running}
+                  disabled={running}
+                >
+                  Fill month
+                </Button>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-1">
+                {p.shift_type_ids.map((id, i) => (
+                  <span key={i} className="flex items-center gap-1">
+                    {i > 0 && <span className="text-neutral-300">→</span>}
+                    <span className="rounded bg-primary-50 px-2 py-0.5 text-xs font-semibold text-primary-700">
+                      {codeOf(id)}
+                    </span>
+                  </span>
+                ))}
+                <span className="ml-1 text-[11px] text-neutral-400">
+                  ({p.shift_type_ids.length}-day cycle)
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-5 flex justify-end">
+          <Button variant="ghost" onClick={onClose}>
+            Close
+          </Button>
         </div>
       </Card>
     </div>

@@ -102,6 +102,20 @@ export interface SubstituteCandidate {
   would_cause_overtime: boolean;
 }
 
+export interface RotationPattern {
+  id: number;
+  name: string;
+  job_title: string;
+  is_active: boolean;
+  shift_type_ids: number[];
+}
+
+export interface AutoFillResult {
+  filled_cells: number;
+  employees_filled: number;
+  skipped: string[];
+}
+
 export interface EmployeeHours {
   employee_id: number;
   name: string;

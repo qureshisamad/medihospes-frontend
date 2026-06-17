@@ -10,6 +10,7 @@ import {
   LogOut,
   MapPin,
   Briefcase,
+  Repeat,
   UserCog,
   Users,
 } from "lucide-react";
@@ -19,6 +20,7 @@ const links = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/roster", label: "Roster", icon: CalendarDays },
   { href: "/employees", label: "Employees", icon: Users },
+  { href: "/admin/rotations", label: "Rotations", icon: Repeat },
   { href: "/admin/shift-types", label: "Shift Types", icon: Clock },
   { href: "/admin/departments", label: "Departments", icon: Building2 },
   { href: "/admin/sites", label: "Sites", icon: MapPin },
