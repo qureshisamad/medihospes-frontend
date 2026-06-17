@@ -114,6 +114,7 @@ export interface AutoFillResult {
   filled_cells: number;
   employees_filled: number;
   skipped: string[];
+  warnings: string[];
 }
 
 export interface EmployeeHours {

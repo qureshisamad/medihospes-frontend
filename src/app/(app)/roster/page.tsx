@@ -515,6 +515,7 @@ function AutoFillModal({
   onDone: () => void;
 }) {
   const [running, setRunning] = useState(false);
+  const [autoStagger, setAutoStagger] = useState(true);
 
   const codeOf = (id: number) => shiftTypes.find((s) => s.id === id)?.code ?? "?";
   const labelOf = (jt: string) =>
@@ -532,12 +533,15 @@ function AutoFillModal({
         year,
         month,
         pattern_id: pattern.id,
+        auto_stagger: autoStagger,
         ...(departmentId !== "" ? { department_id: departmentId } : {}),
       });
       const r = res.data as AutoFillResult;
       if (r.employees_filled === 0) {
         toast.error(
-          "No one was filled. Assign each employee a shift on day 1 first."
+          autoStagger
+            ? "No employees found for this category."
+            : "No one was filled. Assign each employee a shift on day 1 first."
         );
       } else {
         toast.success(
@@ -547,6 +551,9 @@ function AutoFillModal({
           toast(`Skipped (no day-1 shift): ${r.skipped.join(", ")}`, {
             icon: "⚠️",
           });
+        }
+        for (const w of r.warnings ?? []) {
+          toast(w, { icon: "⚠️", duration: 6000 });
         }
       }
       onDone();
@@ -566,10 +573,9 @@ function AutoFillModal({
               Auto-fill {monthLabel} {year}
             </h3>
             <p className="mt-1 text-sm text-neutral-500">
-              Set each employee&apos;s shift on <b>day 1</b>, then pick their
-              rotation below. The rest of the month is filled by advancing each
-              person through the cycle. Absences you&apos;ve already entered are
-              kept, and every cell stays editable.
+              Fills the whole month by advancing each employee through the cycle.
+              Absences you&apos;ve already entered are kept, and every cell stays
+              editable afterwards.
             </p>
           </div>
           <button
@@ -579,6 +585,25 @@ function AutoFillModal({
             <X size={20} />
           </button>
         </div>
+
+        <label className="mt-4 flex items-start gap-2 rounded-lg bg-neutral-50 p-3 text-sm">
+          <input
+            type="checkbox"
+            checked={autoStagger}
+            onChange={(e) => setAutoStagger(e.target.checked)}
+            className="mt-0.5"
+          />
+          <span>
+            <span className="font-medium text-neutral-800">
+              Stagger starts automatically (recommended)
+            </span>
+            <span className="block text-xs text-neutral-500">
+              Each employee gets a different starting shift so coverage is
+              balanced — no two people get the same schedule. Uncheck to use the
+              day-1 shift you entered for each employee instead.
+            </span>
+          </span>
+        </label>
 
         <div className="mt-4 space-y-3">
           {ordered.length === 0 && (
