@@ -125,6 +125,15 @@ export interface AutoFillResult {
   unmet: string[];
 }
 
+export interface ChangeLogEntry {
+  id: number;
+  action: string;
+  employee_name: string | null;
+  work_date: string | null;
+  detail: string;
+  changed_at: string;
+}
+
 export interface EmployeeHours {
   employee_id: number;
   name: string;

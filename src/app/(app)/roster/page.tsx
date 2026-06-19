@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { Download, Repeat, X } from "lucide-react";
+import { Download, History, Repeat, X } from "lucide-react";
 import api from "@/lib/api";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
@@ -10,6 +10,7 @@ import {
   ABSENCE_LABELS,
   type AbsenceCode,
   type AutoFillResult,
+  type ChangeLogEntry,
   type Department,
   type Employee,
   type JobTitleRecord,
@@ -40,6 +41,7 @@ export default function RosterPage() {
   const [cells, setCells] = useState<RosterCell[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAutoFill, setShowAutoFill] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
 
   const [editing, setEditing] = useState<{ emp: Employee; day: number } | null>(
     null
@@ -141,6 +143,9 @@ export default function RosterPage() {
         <div className="flex gap-2">
           <Button onClick={() => setShowAutoFill(true)}>
             <Repeat size={16} /> Auto-fill from rotation
+          </Button>
+          <Button variant="secondary" onClick={() => setShowHistory(true)}>
+            <History size={16} /> History
           </Button>
           <Button variant="secondary" onClick={() => download("xlsx")}>
             <Download size={16} /> Excel
@@ -292,14 +297,18 @@ export default function RosterPage() {
           employee={editing.emp}
           dateStr={dateStr(editing.day)}
           shiftTypes={shiftTypes}
+          rotations={rotations}
           existing={cellMap.get(`${editing.emp.id}-${editing.day}`) ?? null}
           onClose={() => setEditing(null)}
-          onSaved={() => {
+          onReload={loadRoster}
+          onDone={() => {
             setEditing(null);
             loadRoster();
           }}
         />
       )}
+
+      {showHistory && <HistoryModal onClose={() => setShowHistory(false)} />}
     </div>
   );
 }
@@ -308,19 +317,30 @@ function CellEditor({
   employee,
   dateStr,
   shiftTypes,
+  rotations,
   existing,
   onClose,
-  onSaved,
+  onReload,
+  onDone,
 }: {
   employee: Employee;
   dateStr: string;
   shiftTypes: ShiftTypeDef[];
+  rotations: RotationPattern[];
   existing: RosterCell | null;
   onClose: () => void;
-  onSaved: () => void;
+  onReload: () => void;
+  onDone: () => void;
 }) {
   const [subs, setSubs] = useState<SubstituteCandidate[] | null>(null);
   const [saving, setSaving] = useState(false);
+  const [savedOnce, setSavedOnce] = useState(false);
+
+  // The rotation pattern for this employee's category (for propagation).
+  const pattern = rotations.find(
+    (r) => r.job_title === employee.job_title && r.is_active
+  );
+  const [yy, mm] = dateStr.split("-").map(Number);
 
   const save = async (payload: Record<string, unknown>) => {
     setSaving(true);
@@ -331,10 +351,51 @@ function CellEditor({
         ...payload,
       });
       toast.success("Saved");
-      onSaved();
+      setSavedOnce(true);
+      onReload(); // refresh grid behind; keep editor open for propagation
     } catch (e: any) {
       toast.error(e.response?.data?.detail?.toString() || "Save failed");
     } finally {
+      setSaving(false);
+    }
+  };
+
+  const autoUpdateMonth = async () => {
+    if (!pattern) return;
+    setSaving(true);
+    try {
+      const res = await api.post("/roster/auto-fill", {
+        year: yy,
+        month: mm,
+        pattern_id: pattern.id,
+      });
+      const r = res.data as AutoFillResult;
+      toast.success(`Re-balanced — ${r.filled_cells} cells updated.`);
+      if (r.unmet?.length) {
+        toast(`${r.unmet.length} slot(s) left unfilled — see Auto-fill report.`, {
+          icon: "⚠️",
+        });
+      }
+      onDone();
+    } catch (e: any) {
+      toast.error(e.response?.data?.detail?.toString() || "Update failed");
+      setSaving(false);
+    }
+  };
+
+  const cascadePerson = async () => {
+    if (!pattern) return;
+    setSaving(true);
+    try {
+      const res = await api.post("/roster/cascade", {
+        employee_id: employee.id,
+        work_date: dateStr,
+        pattern_id: pattern.id,
+      });
+      toast.success(`Updated ${res.data.updated} of this person's later day(s).`);
+      onDone();
+    } catch (e: any) {
+      toast.error(e.response?.data?.detail?.toString() || "Update failed");
       setSaving(false);
     }
   };
@@ -346,10 +407,9 @@ function CellEditor({
         params: { employee_id: employee.id, work_date: dateStr },
       });
       toast.success("Cleared");
-      onSaved();
+      onDone();
     } catch {
       toast.error("Failed");
-    } finally {
       setSaving(false);
     }
   };
@@ -473,11 +533,38 @@ function CellEditor({
           )}
         </div>
 
+        {savedOnce && pattern && (
+          <div className="mt-5 rounded-lg border border-primary-200 bg-primary-50/40 p-3">
+            <p className="text-sm font-medium text-neutral-800">
+              Apply this change to the rest of the schedule?
+            </p>
+            <p className="mb-3 text-xs text-neutral-500">
+              Your manual change is locked and will be kept either way.
+            </p>
+            <div className="flex flex-col gap-2">
+              <Button
+                variant="secondary"
+                onClick={cascadePerson}
+                loading={saving}
+              >
+                Update {employee.first_name}&apos;s later days only
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={autoUpdateMonth}
+                loading={saving}
+              >
+                Auto-update the whole month (re-balance everyone)
+              </Button>
+            </div>
+          </div>
+        )}
+
         <div className="mt-5 flex justify-between">
           <Button variant="ghost" onClick={onClose}>
-            Close
+            {savedOnce ? "Done — keep rest unchanged" : "Close"}
           </Button>
-          {existing && (
+          {existing && !savedOnce && (
             <Button variant="danger" onClick={clear} loading={saving}>
               Clear cell
             </Button>
@@ -698,6 +785,87 @@ function AutoFillModal({
             )}
           </div>
         )}
+
+        <div className="mt-5 flex justify-end">
+          <Button variant="ghost" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+const ACTION_LABEL: Record<string, string> = {
+  manual_set: "Manual edit",
+  manual_clear: "Cleared",
+  auto_fill: "Auto-fill",
+  cascade: "Cascade",
+};
+
+function HistoryModal({ onClose }: { onClose: () => void }) {
+  const [entries, setEntries] = useState<ChangeLogEntry[] | null>(null);
+
+  useEffect(() => {
+    api
+      .get("/roster/history", { params: { limit: 150 } })
+      .then((r) => setEntries(r.data))
+      .catch(() => toast.error("Could not load history"));
+  }, []);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-start justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-neutral-900">
+              Change history
+            </h3>
+            <p className="text-sm text-neutral-500">
+              Recent roster modifications, most recent first.
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-neutral-400 hover:text-neutral-700"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="mt-4">
+          {entries === null ? (
+            <div className="h-24 animate-pulse rounded-lg bg-neutral-100" />
+          ) : entries.length === 0 ? (
+            <p className="py-6 text-center text-sm text-neutral-500">
+              No changes recorded yet.
+            </p>
+          ) : (
+            <ul className="divide-y divide-neutral-100">
+              {entries.map((e) => (
+                <li key={e.id} className="flex items-start gap-3 py-2.5 text-sm">
+                  <span className="mt-0.5 shrink-0 rounded bg-neutral-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-neutral-500">
+                    {ACTION_LABEL[e.action] ?? e.action}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-neutral-800">
+                      {e.employee_name && (
+                        <span className="font-medium">{e.employee_name} · </span>
+                      )}
+                      {e.detail}
+                      {e.work_date && (
+                        <span className="text-neutral-400"> ({e.work_date})</span>
+                      )}
+                    </div>
+                  </div>
+                  <span className="shrink-0 text-[11px] text-neutral-400">
+                    {new Date(e.changed_at).toLocaleString()}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
 
         <div className="mt-5 flex justify-end">
           <Button variant="ghost" onClick={onClose}>
