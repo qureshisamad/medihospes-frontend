@@ -11,12 +11,14 @@ import type {
   JobTitleRecord,
   RotationPattern,
   ShiftTypeDef,
+  Site,
 } from "@/lib/types";
 
 export default function RotationsPage() {
   const [items, setItems] = useState<RotationPattern[]>([]);
   const [shiftTypes, setShiftTypes] = useState<ShiftTypeDef[]>([]);
   const [jobTitles, setJobTitles] = useState<JobTitleRecord[]>([]);
+  const [sites, setSites] = useState<Site[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<RotationPattern | "new" | null>(null);
 
@@ -26,11 +28,13 @@ export default function RotationsPage() {
       api.get("/rotations"),
       api.get("/shift-types", { params: { is_active: true } }),
       api.get("/job-titles", { params: { is_active: true } }),
+      api.get("/sites"),
     ])
-      .then(([r, s, j]) => {
+      .then(([r, s, j, st]) => {
         setItems(r.data);
         setShiftTypes(s.data);
         setJobTitles(j.data);
+        setSites(st.data);
       })
       .catch(() => toast.error("Failed to load rotations"))
       .finally(() => setLoading(false));
@@ -75,6 +79,7 @@ export default function RotationsPage() {
           pattern={editing === "new" ? null : editing}
           shiftTypes={shiftTypes}
           jobTitles={jobTitles}
+          sites={sites}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
@@ -102,6 +107,7 @@ export default function RotationsPage() {
                 <div className="font-semibold text-neutral-900">{p.name}</div>
                 <div className="mb-2 text-xs text-neutral-500">
                   {labelOf(p.job_title)}
+                  {p.site_name && ` · ${p.site_name}`}
                   {!p.is_active && " · inactive"}
                 </div>
                 <div className="flex flex-wrap items-center gap-1">
@@ -144,18 +150,23 @@ function RotationEditor({
   pattern,
   shiftTypes,
   jobTitles,
+  sites,
   onClose,
   onSaved,
 }: {
   pattern: RotationPattern | null;
   shiftTypes: ShiftTypeDef[];
   jobTitles: JobTitleRecord[];
+  sites: Site[];
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [name, setName] = useState(pattern?.name ?? "");
   const [jobTitle, setJobTitle] = useState(
     pattern?.job_title ?? jobTitles[0]?.name ?? ""
+  );
+  const [siteId, setSiteId] = useState<string>(
+    pattern?.site_id ? String(pattern.site_id) : ""
   );
   const [cycle, setCycle] = useState<number[]>(pattern?.shift_type_ids ?? []);
   const [addId, setAddId] = useState<number | "">(shiftTypes[0]?.id ?? "");
@@ -194,6 +205,7 @@ function RotationEditor({
     const payload = {
       name,
       job_title: jobTitle,
+      site_id: siteId === "" ? null : Number(siteId),
       shift_type_ids: cycle,
       min_rest_hours: Number(minRest) || 0,
       coverage: cov,
@@ -248,6 +260,25 @@ function RotationEditor({
               </option>
             ))}
           </select>
+          <label className="mb-1 mt-3 block text-sm font-medium text-neutral-700">
+            House / location
+          </label>
+          <select
+            value={siteId}
+            onChange={(e) => setSiteId(e.target.value)}
+            className="h-10 w-full rounded-lg border border-neutral-300 px-3 text-sm"
+          >
+            <option value="">All locations (category-wide)</option>
+            {sites.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-neutral-400">
+            Scope this rotation to one house — only that house&apos;s staff are
+            scheduled, and its coverage total is checked against that house.
+          </p>
         </div>
       </div>
 
@@ -343,6 +374,15 @@ function RotationEditor({
           </div>
         ))}
       </div>
+
+      <p className="mt-2 text-xs text-neutral-500">
+        Coverage total:{" "}
+        <b className="text-neutral-800">
+          {Object.values(coverage).reduce((a, b) => a + Number(b || 0), 0)}
+        </b>{" "}
+        — this should equal the number of staff in this category (include R so
+        the rest days are counted).
+      </p>
 
       <div className="mt-4 max-w-xs">
         <Input

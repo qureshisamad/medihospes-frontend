@@ -96,6 +96,8 @@ export interface SubstituteCandidate {
   name: string;
   job_title: string;
   is_cross_role: boolean;
+  is_cross_site: boolean;
+  on_rest: boolean;
   booked_hours: number;
   monthly_hour_limit: number;
   remaining_hours: number;
@@ -111,6 +113,8 @@ export interface RotationPattern {
   id: number;
   name: string;
   job_title: string;
+  site_id: number | null;
+  site_name: string | null;
   is_active: boolean;
   shift_type_ids: number[];
   min_rest_hours: number;
@@ -123,6 +127,7 @@ export interface AutoFillResult {
   skipped: string[];
   warnings: string[];
   unmet: string[];
+  alerts: string[];
 }
 
 export interface ChangeLogEntry {

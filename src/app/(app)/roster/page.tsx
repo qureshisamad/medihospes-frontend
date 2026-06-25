@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { Download, History, Repeat, X } from "lucide-react";
+import { Download, History, Repeat, Trash2, X } from "lucide-react";
 import api from "@/lib/api";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
@@ -17,6 +17,7 @@ import {
   type RosterCell,
   type RotationPattern,
   type ShiftTypeDef,
+  type Site,
   type SubstituteCandidate,
 } from "@/lib/types";
 
@@ -32,9 +33,11 @@ export default function RosterPage() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [departmentId, setDepartmentId] = useState<number | "">("");
   const [jobTitle, setJobTitle] = useState<string>("");
+  const [siteId, setSiteId] = useState<number | "">("");
 
   const [departments, setDepartments] = useState<Department[]>([]);
   const [jobTitles, setJobTitles] = useState<JobTitleRecord[]>([]);
+  const [sites, setSites] = useState<Site[]>([]);
   const [rotations, setRotations] = useState<RotationPattern[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [shiftTypes, setShiftTypes] = useState<ShiftTypeDef[]>([]);
@@ -42,6 +45,7 @@ export default function RosterPage() {
   const [loading, setLoading] = useState(true);
   const [showAutoFill, setShowAutoFill] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showClear, setShowClear] = useState(false);
 
   const [editing, setEditing] = useState<{ emp: Employee; day: number } | null>(
     null
@@ -57,6 +61,7 @@ export default function RosterPage() {
     const scope = {
       ...(departmentId !== "" ? { department_id: departmentId } : {}),
       ...(jobTitle !== "" ? { job_title: jobTitle } : {}),
+      ...(siteId !== "" ? { site_id: siteId } : {}),
     };
     Promise.all([
       api.get("/employees", { params: { is_active: true, ...scope } }),
@@ -68,7 +73,7 @@ export default function RosterPage() {
       })
       .catch(() => toast.error("Failed to load roster"))
       .finally(() => setLoading(false));
-  }, [year, month, departmentId, jobTitle]);
+  }, [year, month, departmentId, jobTitle, siteId]);
 
   useEffect(() => {
     api.get("/departments").then((r) => setDepartments(r.data)).catch(() => {});
@@ -80,6 +85,7 @@ export default function RosterPage() {
       .get("/rotations", { params: { is_active: true } })
       .then((r) => setRotations(r.data))
       .catch(() => {});
+    api.get("/sites").then((r) => setSites(r.data)).catch(() => {});
     api
       .get("/shift-types", { params: { is_active: true } })
       .then((r) => setShiftTypes(r.data))
@@ -112,6 +118,8 @@ export default function RosterPage() {
           year,
           month,
           ...(departmentId !== "" ? { department_id: departmentId } : {}),
+          ...(jobTitle !== "" ? { job_title: jobTitle } : {}),
+          ...(siteId !== "" ? { site_id: siteId } : {}),
         },
         responseType: "blob",
       });
@@ -146,6 +154,9 @@ export default function RosterPage() {
           </Button>
           <Button variant="secondary" onClick={() => setShowHistory(true)}>
             <History size={16} /> History
+          </Button>
+          <Button variant="danger" onClick={() => setShowClear(true)}>
+            <Trash2 size={16} /> Clear month
           </Button>
           <Button variant="secondary" onClick={() => download("xlsx")}>
             <Download size={16} /> Excel
@@ -197,6 +208,18 @@ export default function RosterPage() {
             <option value="">All categories</option>
             {jobTitles.map((j) => (
               <option key={j.id} value={j.name}>{j.label}</option>
+            ))}
+          </select>
+          <select
+            value={siteId}
+            onChange={(e) =>
+              setSiteId(e.target.value === "" ? "" : Number(e.target.value))
+            }
+            className="h-10 rounded-lg border border-neutral-300 px-3 text-sm"
+          >
+            <option value="">All locations</option>
+            {sites.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
             ))}
           </select>
         </div>
@@ -309,6 +332,34 @@ export default function RosterPage() {
       )}
 
       {showHistory && <HistoryModal onClose={() => setShowHistory(false)} />}
+
+      {showClear && (
+        <ClearMonthModal
+          monthLabel={months[month - 1]}
+          year={year}
+          scope={
+            siteId !== ""
+              ? sites.find((s) => s.id === siteId)?.name ?? null
+              : jobTitle !== ""
+              ? jobTitles.find((j) => j.name === jobTitle)?.label ?? jobTitle
+              : departmentId !== ""
+              ? departments.find((d) => d.id === departmentId)?.name ?? null
+              : null
+          }
+          onClose={() => setShowClear(false)}
+          onDone={() => {
+            setShowClear(false);
+            loadRoster();
+          }}
+          params={{
+            year,
+            month,
+            ...(departmentId !== "" ? { department_id: departmentId } : {}),
+            ...(jobTitle !== "" ? { job_title: jobTitle } : {}),
+            ...(siteId !== "" ? { site_id: siteId } : {}),
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -336,10 +387,19 @@ function CellEditor({
   const [saving, setSaving] = useState(false);
   const [savedOnce, setSavedOnce] = useState(false);
 
-  // The rotation pattern for this employee's category (for propagation).
-  const pattern = rotations.find(
-    (r) => r.job_title === employee.job_title && r.is_active
-  );
+  // The rotation pattern for this employee's category + house (for
+  // propagation). Prefer the house-specific one; fall back to category-wide.
+  const pattern =
+    rotations.find(
+      (r) =>
+        r.job_title === employee.job_title &&
+        r.site_id === employee.site_id &&
+        r.is_active
+    ) ??
+    rotations.find(
+      (r) =>
+        r.job_title === employee.job_title && r.site_id === null && r.is_active
+    );
   const [yy, mm] = dateStr.split("-").map(Number);
 
   const save = async (payload: Record<string, unknown>) => {
@@ -371,6 +431,9 @@ function CellEditor({
       });
       const r = res.data as AutoFillResult;
       toast.success(`Re-balanced — ${r.filled_cells} cells updated.`);
+      for (const a of r.alerts ?? []) {
+        toast(a, { icon: "⚠️", duration: 7000 });
+      }
       if (r.unmet?.length) {
         toast(`${r.unmet.length} slot(s) left unfilled — see Auto-fill report.`, {
           icon: "⚠️",
@@ -421,6 +484,7 @@ function CellEditor({
           role: employee.job_title,
           work_date: dateStr,
           exclude_employee_id: employee.id,
+          ...(employee.site_id != null ? { site_id: employee.site_id } : {}),
         },
       });
       setSubs(res.data);
@@ -510,9 +574,19 @@ function CellEditor({
                 >
                   <div>
                     <span className="font-medium">{s.name}</span>
+                    {s.on_rest && (
+                      <span className="ml-2 rounded bg-success-50 px-1.5 py-0.5 text-[10px] text-success-700">
+                        rest day
+                      </span>
+                    )}
                     {s.is_cross_role && (
                       <span className="ml-2 text-[10px] text-info-500">
                         cross-role
+                      </span>
+                    )}
+                    {s.is_cross_site && (
+                      <span className="ml-2 rounded bg-warning-50 px-1.5 py-0.5 text-[10px] text-warning-700">
+                        other house
                       </span>
                     )}
                     <span className="block text-[11px] text-neutral-400">
@@ -648,9 +722,11 @@ function AutoFillModal({
               Auto-fill {monthLabel} {year}
             </h3>
             <p className="mt-1 text-sm text-neutral-500">
-              Fills the whole month for the category, respecting contract hours
-              and rest between shifts. Absences you&apos;ve entered are kept and
-              every cell stays editable afterwards.
+              Fills the whole month by rotating each employee through the
+              category&apos;s shift order (e.g. M → P/N → S → R), keeping daily
+              coverage balanced. Absences you&apos;ve entered are kept and every
+              cell stays editable. You&apos;ll be alerted if the staff count
+              doesn&apos;t match the coverage total.
             </p>
           </div>
           <button
@@ -700,6 +776,7 @@ function AutoFillModal({
                     <div className="font-medium text-neutral-900">{p.name}</div>
                     <div className="text-xs text-neutral-500">
                       {labelOf(p.job_title)}
+                      {p.site_name && ` · ${p.site_name}`}
                       {coverageMode && ` · min rest ${p.min_rest_hours}h`}
                     </div>
                   </div>
@@ -749,6 +826,18 @@ function AutoFillModal({
 
         {result && (
           <div className="mt-4 space-y-3 border-t border-neutral-200 pt-4">
+            {result.alerts.length > 0 && (
+              <div className="rounded-lg border border-danger-300 bg-danger-50 px-3 py-2.5 text-sm text-danger-700">
+                <div className="flex items-center gap-2 font-semibold">
+                  ⚠️ Please check — the schedule may not balance:
+                </div>
+                <ul className="mt-1 list-disc pl-5">
+                  {result.alerts.map((a, i) => (
+                    <li key={i}>{a}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <div className="rounded-lg bg-success-50 px-3 py-2 text-sm text-success-700">
               Filled <b>{result.filled_cells}</b> cells for{" "}
               <b>{result.employees_filled}</b> employee(s).
@@ -802,6 +891,87 @@ const ACTION_LABEL: Record<string, string> = {
   auto_fill: "Auto-fill",
   cascade: "Cascade",
 };
+
+function ClearMonthModal({
+  monthLabel,
+  year,
+  scope,
+  params,
+  onClose,
+  onDone,
+}: {
+  monthLabel: string;
+  year: number;
+  scope: string | null;
+  params: Record<string, unknown>;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [keepAbsences, setKeepAbsences] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  const clear = async () => {
+    setBusy(true);
+    try {
+      const res = await api.delete("/roster/month", {
+        params: { ...params, keep_absences: keepAbsences },
+      });
+      toast.success(`Cleared ${res.data.cleared} cells.`);
+      onDone();
+    } catch (e: any) {
+      toast.error(e.response?.data?.detail?.toString() || "Clear failed");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <Card className="w-full max-w-md">
+        <div className="flex items-start justify-between">
+          <h3 className="text-lg font-semibold text-neutral-900">
+            Clear {monthLabel} {year}?
+          </h3>
+          <button
+            onClick={onClose}
+            className="text-neutral-400 hover:text-neutral-700"
+          >
+            <X size={20} />
+          </button>
+        </div>
+        <p className="mt-2 text-sm text-neutral-600">
+          This removes the schedule for{" "}
+          <b>{scope ? scope : "all staff"}</b> in {monthLabel} {year}. This can&apos;t
+          be undone (but you can re-generate with Auto-fill).
+        </p>
+        <label className="mt-4 flex items-start gap-2 rounded-lg bg-neutral-50 p-3 text-sm">
+          <input
+            type="checkbox"
+            checked={keepAbsences}
+            onChange={(e) => setKeepAbsences(e.target.checked)}
+            className="mt-0.5"
+          />
+          <span>
+            <span className="font-medium text-neutral-800">
+              Keep absences
+            </span>
+            <span className="block text-xs text-neutral-500">
+              Preserve entered vacation / sick leave / transfers. Uncheck to wipe
+              everything.
+            </span>
+          </span>
+        </label>
+        <div className="mt-5 flex justify-between">
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="danger" onClick={clear} loading={busy}>
+            Clear month
+          </Button>
+        </div>
+      </Card>
+    </div>
+  );
+}
 
 function HistoryModal({ onClose }: { onClose: () => void }) {
   const [entries, setEntries] = useState<ChangeLogEntry[] | null>(null);
