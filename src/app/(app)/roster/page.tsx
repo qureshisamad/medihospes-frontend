@@ -111,6 +111,100 @@ export default function RosterPage() {
   const dateStr = (day: number) =>
     `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 
+  // --- Per-day coverage status (green OK / yellow incomplete / red excessive) ---
+  // Coverage is judged PER HOUSE (job_title + site) so a duplicate in one house
+  // never mis-flags a legitimate cell in another.
+  const patternByEmp = useMemo(() => {
+    const m = new Map<number, RotationPattern | null>();
+    for (const e of employees) {
+      const p =
+        rotations.find(
+          (r) =>
+            r.is_active &&
+            r.coverage.length > 0 &&
+            r.job_title === e.job_title &&
+            r.site_id === e.site_id
+        ) ??
+        rotations.find(
+          (r) =>
+            r.is_active &&
+            r.coverage.length > 0 &&
+            r.job_title === e.job_title &&
+            r.site_id === null
+        ) ??
+        null;
+      m.set(e.id, p);
+    }
+    return m;
+  }, [employees, rotations]);
+
+  const hasCoverage = useMemo(
+    () => [...patternByEmp.values()].some((p) => p != null),
+    [patternByEmp]
+  );
+
+  // Per-day: status, which shifts are over/under, and which employee cells are
+  // duplicates (over their required count within their own house).
+  const coverageByDay = useMemo(() => {
+    const map = new Map<
+      number,
+      {
+        status: "ok" | "under" | "over";
+        overCodes: string[];
+        underCodes: string[];
+        overEmpIds: Set<number>;
+      }
+    >();
+    if (!hasCoverage) return map;
+    // group visible employees by their house rotation
+    const groups = new Map<number, { pattern: RotationPattern; emps: Employee[] }>();
+    for (const e of employees) {
+      const p = patternByEmp.get(e.id);
+      if (!p) continue;
+      if (!groups.has(p.id)) groups.set(p.id, { pattern: p, emps: [] });
+      groups.get(p.id)!.emps.push(e);
+    }
+    for (const day of days) {
+      let over = false;
+      let under = false;
+      const overCodes = new Set<string>();
+      const underCodes = new Set<string>();
+      const overEmpIds = new Set<number>();
+      for (const { pattern, emps } of groups.values()) {
+        const req = new Map(
+          pattern.coverage.map((c) => [c.shift_type_id, c.required_count])
+        );
+        const holders = new Map<number, number[]>(); // shift -> empIds
+        for (const e of emps) {
+          const sid = cellMap.get(`${e.id}-${day}`)?.shift_type_id;
+          if (sid != null && req.has(sid)) {
+            if (!holders.has(sid)) holders.set(sid, []);
+            holders.get(sid)!.push(e.id);
+          }
+        }
+        for (const [sid, r] of req) {
+          const list = holders.get(sid) ?? [];
+          if (list.length > r) {
+            over = true;
+            overCodes.add(shiftCode(sid));
+            list.forEach((id) => overEmpIds.add(id));
+          }
+          if (list.length < r) {
+            under = true;
+            underCodes.add(shiftCode(sid));
+          }
+        }
+      }
+      map.set(day, {
+        status: over ? "over" : under ? "under" : "ok",
+        overCodes: [...overCodes],
+        underCodes: [...underCodes],
+        overEmpIds,
+      });
+    }
+    return map;
+  }, [employees, patternByEmp, hasCoverage, cellMap, days, shiftTypes]);
+
   const download = async (fmt: "xlsx" | "pdf") => {
     try {
       const res = await api.get(`/reports/roster.${fmt}`, {
@@ -270,20 +364,31 @@ export default function RosterPage() {
                         : cell.absence_code
                       : "";
                     const isAbsence = !!cell?.absence_code;
+                    // Cell is a duplicate if its shift is over its house's
+                    // required count this day.
+                    const isDuplicate =
+                      cell?.shift_type_id != null &&
+                      !!coverageByDay.get(d)?.overEmpIds.has(emp.id);
                     return (
                       <td
                         key={d}
                         onClick={() => setEditing({ emp, day: d })}
                         className={
                           "border-b border-l border-neutral-100 text-center cursor-pointer h-8 " +
-                          (isAbsence
+                          (isDuplicate
+                            ? "bg-danger-50 text-danger-700 font-bold ring-2 ring-inset ring-danger-500 "
+                            : isAbsence
                             ? "bg-warning-50 text-warning-700 font-semibold"
                             : label
                             ? "bg-primary-50 text-primary-700 font-semibold"
                             : "hover:bg-primary-50/50")
                         }
                         title={
-                          cell?.substitutes_for_id
+                          isDuplicate
+                            ? `Duplicate: ${shiftCode(
+                                cell!.shift_type_id!
+                              )} is over its required count this day`
+                            : cell?.substitutes_for_id
                             ? "Substitution"
                             : undefined
                         }
@@ -296,7 +401,71 @@ export default function RosterPage() {
                 </tr>
               ))}
             </tbody>
+            {hasCoverage && (
+              <tfoot>
+                <tr>
+                  <td className="sticky left-0 z-10 bg-white border-t-2 border-neutral-300 px-2 py-1.5 text-[11px] font-semibold text-neutral-600 whitespace-nowrap">
+                    Day coverage
+                  </td>
+                  {days.map((d) => {
+                    const cov = coverageByDay.get(d);
+                    const st = cov?.status ?? null;
+                    const bg =
+                      st === "ok"
+                        ? "bg-success-500"
+                        : st === "under"
+                        ? "bg-warning-500"
+                        : st === "over"
+                        ? "bg-danger-500"
+                        : "bg-neutral-100";
+                    const sym =
+                      st === "ok"
+                        ? "✓"
+                        : st === "under"
+                        ? "↓"
+                        : st === "over"
+                        ? "↑"
+                        : "";
+                    const title =
+                      st === "ok"
+                        ? "Coverage complete"
+                        : st === "under"
+                        ? `Incomplete — short: ${cov!.underCodes.join(", ")}`
+                        : st === "over"
+                        ? `Excessive — too many: ${cov!.overCodes.join(", ")}`
+                        : "";
+                    return (
+                      <td
+                        key={d}
+                        title={title}
+                        className={
+                          "border-t-2 border-l border-neutral-200 text-center h-6 text-[11px] font-bold text-white " +
+                          bg
+                        }
+                      >
+                        {sym}
+                      </td>
+                    );
+                  })}
+                </tr>
+              </tfoot>
+            )}
           </table>
+          {hasCoverage && (
+            <div className="mt-2 flex flex-wrap items-center gap-4 text-[11px] text-neutral-500">
+              <span className="flex items-center gap-1">
+                <span className="inline-block h-3 w-3 rounded bg-success-500" /> OK
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="inline-block h-3 w-3 rounded bg-warning-500" />{" "}
+                Incomplete (below required)
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="inline-block h-3 w-3 rounded bg-danger-500" />{" "}
+                Excessive (above required)
+              </span>
+            </div>
+          )}
         </Card>
       )}
 
