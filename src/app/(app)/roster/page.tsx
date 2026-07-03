@@ -322,6 +322,16 @@ export default function RosterPage() {
           shiftTypes={shiftTypes}
           rotations={rotations}
           existing={cellMap.get(`${editing.emp.id}-${editing.day}`) ?? null}
+          sameDayShiftHolders={(shiftId: number) =>
+            employees
+              .filter(
+                (e) =>
+                  e.id !== editing.emp.id &&
+                  e.site_id === editing.emp.site_id &&
+                  cellMap.get(`${e.id}-${editing.day}`)?.shift_type_id === shiftId
+              )
+              .map((e) => ({ id: e.id, name: `${e.first_name} ${e.last_name}` }))
+          }
           onClose={() => setEditing(null)}
           onReload={loadRoster}
           onDone={() => {
@@ -370,6 +380,7 @@ function CellEditor({
   shiftTypes,
   rotations,
   existing,
+  sameDayShiftHolders,
   onClose,
   onReload,
   onDone,
@@ -379,6 +390,7 @@ function CellEditor({
   shiftTypes: ShiftTypeDef[];
   rotations: RotationPattern[];
   existing: RosterCell | null;
+  sameDayShiftHolders: (shiftId: number) => { id: number; name: string }[];
   onClose: () => void;
   onReload: () => void;
   onDone: () => void;
@@ -386,6 +398,18 @@ function CellEditor({
   const [subs, setSubs] = useState<SubstituteCandidate[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedOnce, setSavedOnce] = useState(false);
+  const [savedKind, setSavedKind] = useState<"shift" | "absence" | null>(null);
+  const [overWarn, setOverWarn] = useState<{
+    shiftId: number;
+    code: string;
+    have: number;
+    req: number;
+    holder: { id: number; name: string };
+  } | null>(null);
+
+  // The shift this cell held before the edit — the gap to cover when a leave
+  // replaces a working shift.
+  const gapShiftId = existing?.shift_type_id ?? null;
 
   // The rotation pattern for this employee's category + house (for
   // propagation). Prefer the house-specific one; fall back to category-wide.
@@ -412,10 +436,54 @@ function CellEditor({
       });
       toast.success("Saved");
       setSavedOnce(true);
+      const isAbsence = !!payload.absence_code;
+      setSavedKind(isAbsence ? "absence" : "shift");
+      if (isAbsence) loadSubs(); // a leave needs cover — surface substitutes
       onReload(); // refresh grid behind; keep editor open for propagation
     } catch (e: any) {
       toast.error(e.response?.data?.detail?.toString() || "Save failed");
     } finally {
+      setSaving(false);
+    }
+  };
+
+  // Assign a working shift, but warn first if it already has its required
+  // number of people this day in this house (esp. important on the day-1 seed).
+  const assignShift = (shiftId: number) => {
+    const req = pattern?.coverage.find(
+      (c) => c.shift_type_id === shiftId
+    )?.required_count;
+    const holders = sameDayShiftHolders(shiftId);
+    if (req != null && holders.length >= req) {
+      const code = shiftTypes.find((s) => s.id === shiftId)?.code ?? "This shift";
+      setOverWarn({
+        shiftId,
+        code,
+        have: holders.length,
+        req,
+        holder: holders[0],
+      });
+      return; // over capacity — offer a swap instead of duplicating
+    }
+    save({ shift_type_id: shiftId });
+  };
+
+  // Give the shift to this employee AND move it off the current holder by
+  // exchanging their two cells — keeps coverage balanced (never both).
+  const doSwap = async () => {
+    if (!overWarn) return;
+    setSaving(true);
+    try {
+      await api.post("/roster/swap", {
+        employee_a_id: overWarn.holder.id,
+        employee_b_id: employee.id,
+        work_date: dateStr,
+      });
+      toast.success(`Swapped with ${overWarn.holder.name}.`);
+      setOverWarn(null);
+      onDone();
+    } catch (e: any) {
+      toast.error(e.response?.data?.detail?.toString() || "Swap failed");
       setSaving(false);
     }
   };
@@ -430,7 +498,7 @@ function CellEditor({
         pattern_id: pattern.id,
       });
       const r = res.data as AutoFillResult;
-      toast.success(`Re-balanced — ${r.filled_cells} cells updated.`);
+      toast.success(`Rotation regenerated — ${r.filled_cells} cells.`);
       for (const a of r.alerts ?? []) {
         toast(a, { icon: "⚠️", duration: 7000 });
       }
@@ -484,6 +552,7 @@ function CellEditor({
           role: employee.job_title,
           work_date: dateStr,
           exclude_employee_id: employee.id,
+          ...(gapShiftId != null ? { shift_type_id: gapShiftId } : {}),
           ...(employee.site_id != null ? { site_id: employee.site_id } : {}),
         },
       });
@@ -516,7 +585,7 @@ function CellEditor({
             <button
               key={s.id}
               disabled={saving}
-              onClick={() => save({ shift_type_id: s.id })}
+              onClick={() => assignShift(s.id)}
               className={
                 "rounded-lg border px-3 py-1.5 text-sm font-medium " +
                 (existing?.shift_type_id === s.id
@@ -529,6 +598,29 @@ function CellEditor({
             </button>
           ))}
         </div>
+
+        {overWarn && (
+          <div className="mt-3 rounded-lg border border-warning-300 bg-warning-50 p-3 text-sm">
+            <p className="font-medium text-warning-800">
+              ⚠️ {overWarn.code} is already held by {overWarn.holder.name} on{" "}
+              {dateStr} (coverage {overWarn.req}).
+            </p>
+            <p className="mt-1 text-xs text-warning-700">
+              Swapping gives {overWarn.code} to {employee.first_name}{" "}
+              {employee.last_name}, and {overWarn.holder.name} takes{" "}
+              {employee.first_name}&apos;s current shift — so it&apos;s never
+              assigned to both.
+            </p>
+            <div className="mt-2 flex gap-2">
+              <Button variant="primary" onClick={doSwap} loading={saving}>
+                Swap with {overWarn.holder.name}
+              </Button>
+              <Button variant="ghost" onClick={() => setOverWarn(null)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
 
         <p className="mt-4 mb-2 text-xs font-medium uppercase text-neutral-500">
           Absence
@@ -607,7 +699,30 @@ function CellEditor({
           )}
         </div>
 
-        {savedOnce && pattern && (
+        {savedOnce && savedKind === "absence" && (
+          <div className="mt-5 rounded-lg border border-warning-300 bg-warning-50/50 p-3">
+            <p className="text-sm font-medium text-neutral-800">
+              {employee.first_name} is on leave
+              {gapShiftId
+                ? ` — their ${
+                    shiftTypes.find((s) => s.id === gapShiftId)?.code ?? ""
+                  } shift needs cover.`
+                : "."}
+            </p>
+            <p className="mt-1 text-xs text-neutral-500">
+              Available substitutes (same house first) are listed above. Pick one
+              and assign them on their own row — the software never assigns cover
+              on its own.
+            </p>
+            <div className="mt-2">
+              <Button variant="secondary" onClick={loadSubs}>
+                Find cover for this leave
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {savedOnce && savedKind === "shift" && pattern && (
           <div className="mt-5 rounded-lg border border-primary-200 bg-primary-50/40 p-3">
             <p className="text-sm font-medium text-neutral-800">
               Apply this change to the rest of the schedule?
@@ -628,7 +743,7 @@ function CellEditor({
                 onClick={autoUpdateMonth}
                 loading={saving}
               >
-                Auto-update the whole month (re-balance everyone)
+                Regenerate the whole month&apos;s rotation (keeps edits)
               </Button>
             </div>
           </div>
