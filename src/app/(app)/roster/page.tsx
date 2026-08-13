@@ -1,9 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
-import { Download, History, Repeat, Trash2, X } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  History,
+  Repeat,
+  Trash2,
+  X,
+} from "lucide-react";
 import api from "@/lib/api";
+import { holidayName } from "@/lib/holidays";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import {
@@ -22,6 +31,9 @@ import {
 } from "@/lib/types";
 
 const ABSENCE_CODES = Object.keys(ABSENCE_LABELS) as AbsenceCode[];
+
+// Weekday initials indexed by JS Date.getDay() (0 = Sunday).
+const WEEKDAY = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
 function daysInMonth(year: number, month: number) {
   return new Date(year, month, 0).getDate();
@@ -51,13 +63,86 @@ export default function RosterPage() {
     null
   );
 
+  // "Detached" second house shown below the main grid for coordination
+  // (objective 3, part 1). Read-only reference of another casa's cells.
+  const [compareSiteId, setCompareSiteId] = useState<number | "">("");
+  const [compareEmployees, setCompareEmployees] = useState<Employee[]>([]);
+  const [compareCells, setCompareCells] = useState<RosterCell[]>([]);
+
+  // Weekly vs monthly view. Weekly shows one Mon–Sun week at a time with
+  // prev/next controls; monthly shows the whole month (the original grid).
+  const [viewMode, setViewMode] = useState<"week" | "month">("week");
+  const [weekIndex, setWeekIndex] = useState(0);
+
   const days = useMemo(() => {
     const n = daysInMonth(year, month);
     return Array.from({ length: n }, (_, i) => i + 1);
   }, [year, month]);
 
+  // The month split into Mon–Sun weeks (partial weeks at the ends are kept).
+  const weeks = useMemo(() => {
+    const out: number[][] = [];
+    let cur: number[] = [];
+    for (const d of days) {
+      // JS getDay(): 1 = Monday. Start a new week on Mondays (after day 1).
+      if (new Date(year, month - 1, d).getDay() === 1 && cur.length) {
+        out.push(cur);
+        cur = [];
+      }
+      cur.push(d);
+    }
+    if (cur.length) out.push(cur);
+    return out;
+  }, [days, year, month]);
+
+  // Default the week to the one containing today (when on the current month),
+  // and keep weekIndex in range whenever the month/weeks change.
+  useEffect(() => {
+    const today = new Date();
+    let idx = 0;
+    if (today.getFullYear() === year && today.getMonth() + 1 === month) {
+      const di = weeks.findIndex((w) => w.includes(today.getDate()));
+      if (di >= 0) idx = di;
+    }
+    setWeekIndex(idx);
+  }, [year, month, weeks]);
+
+  const visibleDays =
+    viewMode === "week" ? weeks[weekIndex] ?? days : days;
+
+  // Weekday + festività metadata per day. Sundays and Italian public holidays
+  // (incl. the Messina patron feast) are flagged red in the header.
+  const dayMeta = useMemo(() => {
+    const m = new Map<
+      number,
+      { dow: number; holiday: string | null; isRed: boolean }
+    >();
+    for (const d of days) {
+      const dow = new Date(year, month - 1, d).getDay();
+      const holiday = holidayName(year, month, d);
+      m.set(d, { dow, holiday, isRed: dow === 0 || holiday != null });
+    }
+    return m;
+  }, [days, year, month]);
+
+  // The named festività falling in this month, for the reference list below the
+  // grid (so the manager doesn't have to hover each red header to read them).
+  const monthHolidays = useMemo(
+    () =>
+      days
+        .map((d) => ({ day: d, name: dayMeta.get(d)?.holiday ?? null }))
+        .filter((x): x is { day: number; name: string } => x.name != null),
+    [days, dayMeta]
+  );
+
+  // Guard against out-of-order responses: the backend talks to a remote DB, so
+  // a slower earlier request can resolve after a newer one. Only the latest
+  // in-flight load is allowed to write state.
+  const loadSeq = useRef(0);
+
   const loadRoster = useCallback(() => {
     setLoading(true);
+    const seq = ++loadSeq.current;
     const scope = {
       ...(departmentId !== "" ? { department_id: departmentId } : {}),
       ...(jobTitle !== "" ? { job_title: jobTitle } : {}),
@@ -68,11 +153,16 @@ export default function RosterPage() {
       api.get("/roster", { params: { year, month, ...scope } }),
     ])
       .then(([e, r]) => {
+        if (seq !== loadSeq.current) return; // a newer load superseded this one
         setEmployees(e.data);
         setCells(r.data);
       })
-      .catch(() => toast.error("Failed to load roster"))
-      .finally(() => setLoading(false));
+      .catch(() => {
+        if (seq === loadSeq.current) toast.error("Failed to load roster");
+      })
+      .finally(() => {
+        if (seq === loadSeq.current) setLoading(false);
+      });
   }, [year, month, departmentId, jobTitle, siteId]);
 
   useEffect(() => {
@@ -95,6 +185,44 @@ export default function RosterPage() {
   useEffect(() => {
     loadRoster();
   }, [loadRoster]);
+
+  // Load the detached compare house (same category/dept scope, different site).
+  const compareSeq = useRef(0);
+  const loadCompare = useCallback(() => {
+    const seq = ++compareSeq.current;
+    if (compareSiteId === "") {
+      setCompareEmployees([]);
+      setCompareCells([]);
+      return;
+    }
+    const scope = {
+      ...(departmentId !== "" ? { department_id: departmentId } : {}),
+      ...(jobTitle !== "" ? { job_title: jobTitle } : {}),
+      site_id: compareSiteId,
+    };
+    Promise.all([
+      api.get("/employees", { params: { is_active: true, ...scope } }),
+      api.get("/roster", { params: { year, month, ...scope } }),
+    ])
+      .then(([e, r]) => {
+        if (seq !== compareSeq.current) return; // superseded
+        setCompareEmployees(e.data);
+        setCompareCells(r.data);
+      })
+      .catch(() => {
+        if (seq === compareSeq.current) toast.error("Failed to load compared house");
+      });
+  }, [compareSiteId, year, month, departmentId, jobTitle]);
+
+  useEffect(() => {
+    loadCompare();
+  }, [loadCompare]);
+
+  // A compare house only makes sense against a chosen primary house; drop it
+  // when no primary site is selected or it would duplicate the primary.
+  useEffect(() => {
+    if (siteId === "" || siteId === compareSiteId) setCompareSiteId("");
+  }, [siteId, compareSiteId]);
 
   const shiftCode = (id: number | null) =>
     shiftTypes.find((s) => s.id === id)?.code ?? "?";
@@ -316,6 +444,76 @@ export default function RosterPage() {
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
           </select>
+          {siteId !== "" && (
+            <select
+              value={compareSiteId}
+              onChange={(e) =>
+                setCompareSiteId(
+                  e.target.value === "" ? "" : Number(e.target.value)
+                )
+              }
+              title="Show a second house below for coordination"
+              className="h-10 rounded-lg border border-dashed border-neutral-400 px-3 text-sm"
+            >
+              <option value="">+ Compare with…</option>
+              {sites
+                .filter((s) => s.id !== siteId)
+                .map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+            </select>
+          )}
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-neutral-100 pt-3">
+          {/* Weekly / Monthly view toggle */}
+          <div className="inline-flex rounded-lg border border-neutral-300 p-0.5">
+            {(["week", "month"] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => setViewMode(m)}
+                className={
+                  "rounded-md px-3 py-1.5 text-sm font-medium capitalize " +
+                  (viewMode === m
+                    ? "bg-primary-600 text-white"
+                    : "text-neutral-600 hover:bg-neutral-100")
+                }
+              >
+                {m === "week" ? "Weekly" : "Monthly"}
+              </button>
+            ))}
+          </div>
+
+          {/* Week navigation (weekly view only) */}
+          {viewMode === "week" && weeks.length > 0 && (
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                onClick={() => setWeekIndex((i) => Math.max(0, i - 1))}
+                disabled={weekIndex === 0}
+              >
+                <ChevronLeft size={16} /> Prev
+              </Button>
+              <span className="min-w-[150px] text-center text-sm font-medium text-neutral-700">
+                Week {weekIndex + 1} of {weeks.length}
+                {visibleDays.length > 0 && (
+                  <span className="block text-[11px] font-normal text-neutral-400">
+                    {months[month - 1].slice(0, 3)} {visibleDays[0]}–
+                    {visibleDays[visibleDays.length - 1]}
+                  </span>
+                )}
+              </span>
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  setWeekIndex((i) => Math.min(weeks.length - 1, i + 1))
+                }
+                disabled={weekIndex >= weeks.length - 1}
+              >
+                Next <ChevronRight size={16} />
+              </Button>
+            </div>
+          )}
         </div>
       </Card>
 
@@ -335,14 +533,35 @@ export default function RosterPage() {
                 <th className="sticky left-0 z-10 bg-white border-b border-neutral-200 px-2 py-2 text-left font-semibold min-w-[160px]">
                   Employee
                 </th>
-                {days.map((d) => (
-                  <th
-                    key={d}
-                    className="border-b border-neutral-200 px-1 py-2 text-center font-medium text-neutral-600 w-8"
-                  >
-                    {d}
-                  </th>
-                ))}
+                {visibleDays.map((d) => {
+                  const meta = dayMeta.get(d)!;
+                  const tip =
+                    meta.holiday ?? (meta.dow === 0 ? "Sunday" : undefined);
+                  return (
+                    <th
+                      key={d}
+                      title={tip}
+                      className={
+                        "border-b border-neutral-200 px-1 py-1 text-center font-medium w-8 " +
+                        (meta.holiday
+                          ? "bg-danger-700 text-white" // festività — dark red
+                          : meta.dow === 0
+                          ? "bg-danger-50 text-danger-700" // Sunday — light red
+                          : "text-neutral-600")
+                      }
+                    >
+                      <span
+                        className={
+                          "block text-[9px] font-normal uppercase leading-tight " +
+                          (meta.holiday ? "opacity-90" : "opacity-70")
+                        }
+                      >
+                        {WEEKDAY[meta.dow]}
+                      </span>
+                      <span className="block leading-tight">{d}</span>
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
@@ -356,7 +575,7 @@ export default function RosterPage() {
                       {emp.job_title}
                     </span>
                   </td>
-                  {days.map((d) => {
+                  {visibleDays.map((d) => {
                     const cell = cellMap.get(`${emp.id}-${d}`);
                     const label = cell
                       ? cell.shift_type_id
@@ -369,12 +588,25 @@ export default function RosterPage() {
                     const isDuplicate =
                       cell?.shift_type_id != null &&
                       !!coverageByDay.get(d)?.overEmpIds.has(emp.id);
+                    const hasNote = !!cell?.notes;
+                    const title =
+                      [
+                        isDuplicate
+                          ? `Duplicate: ${shiftCode(
+                              cell!.shift_type_id!
+                            )} is over its required count this day`
+                          : null,
+                        cell?.substitutes_for_id ? "Substitution" : null,
+                        hasNote ? `Note: ${cell!.notes}` : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ") || undefined;
                     return (
                       <td
                         key={d}
                         onClick={() => setEditing({ emp, day: d })}
                         className={
-                          "border-b border-l border-neutral-100 text-center cursor-pointer h-8 " +
+                          "relative border-b border-l border-neutral-100 text-center cursor-pointer h-8 " +
                           (isDuplicate
                             ? "bg-danger-50 text-danger-700 font-bold ring-2 ring-inset ring-danger-500 "
                             : isAbsence
@@ -383,18 +615,16 @@ export default function RosterPage() {
                             ? "bg-primary-50 text-primary-700 font-semibold"
                             : "hover:bg-primary-50/50")
                         }
-                        title={
-                          isDuplicate
-                            ? `Duplicate: ${shiftCode(
-                                cell!.shift_type_id!
-                              )} is over its required count this day`
-                            : cell?.substitutes_for_id
-                            ? "Substitution"
-                            : undefined
-                        }
+                        title={title}
                       >
                         {label}
                         {cell?.substitutes_for_id ? "*" : ""}
+                        {hasNote && (
+                          <span
+                            className="pointer-events-none absolute right-0 top-0 h-0 w-0 border-l-[5px] border-t-[5px] border-l-transparent border-t-danger-500"
+                            aria-label="Has comment"
+                          />
+                        )}
                       </td>
                     );
                   })}
@@ -407,7 +637,7 @@ export default function RosterPage() {
                   <td className="sticky left-0 z-10 bg-white border-t-2 border-neutral-300 px-2 py-1.5 text-[11px] font-semibold text-neutral-600 whitespace-nowrap">
                     Day coverage
                   </td>
-                  {days.map((d) => {
+                  {visibleDays.map((d) => {
                     const cov = coverageByDay.get(d);
                     const st = cov?.status ?? null;
                     const bg =
@@ -451,6 +681,20 @@ export default function RosterPage() {
               </tfoot>
             )}
           </table>
+          {monthHolidays.length > 0 && (
+            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-neutral-500">
+              <span className="flex items-center gap-1 font-medium text-danger-700">
+                <span className="inline-block h-3 w-3 rounded bg-danger-700" />
+                Festività {months[month - 1]}:
+              </span>
+              {monthHolidays.map((h) => (
+                <span key={h.day} className="whitespace-nowrap">
+                  <span className="font-semibold text-danger-700">{h.day}</span>{" "}
+                  {h.name}
+                </span>
+              ))}
+            </div>
+          )}
           {hasCoverage && (
             <div className="mt-2 flex flex-wrap items-center gap-4 text-[11px] text-neutral-500">
               <span className="flex items-center gap-1">
@@ -467,6 +711,20 @@ export default function RosterPage() {
             </div>
           )}
         </Card>
+      )}
+
+      {compareSiteId !== "" && (
+        <CompareGrid
+          houseName={
+            sites.find((s) => s.id === compareSiteId)?.name ?? "Other house"
+          }
+          employees={compareEmployees}
+          cells={compareCells}
+          visibleDays={visibleDays}
+          dayMeta={dayMeta}
+          shiftTypes={shiftTypes}
+          onClose={() => setCompareSiteId("")}
+        />
       )}
 
       {showAutoFill && (
@@ -543,6 +801,149 @@ export default function RosterPage() {
   );
 }
 
+// Read-only "detached" grid of a second house, shown below the main roster so
+// the manager can see another casa's filled/empty cells while scheduling
+// (objective 3, part 1). Day columns mirror the main grid (same week + festività
+// colouring) so the two houses line up day-for-day.
+function CompareGrid({
+  houseName,
+  employees,
+  cells,
+  visibleDays,
+  dayMeta,
+  shiftTypes,
+  onClose,
+}: {
+  houseName: string;
+  employees: Employee[];
+  cells: RosterCell[];
+  visibleDays: number[];
+  dayMeta: Map<
+    number,
+    { dow: number; holiday: string | null; isRed: boolean }
+  >;
+  shiftTypes: ShiftTypeDef[];
+  onClose: () => void;
+}) {
+  const shiftCode = (id: number | null) =>
+    shiftTypes.find((s) => s.id === id)?.code ?? "?";
+
+  const cellMap = useMemo(() => {
+    const m = new Map<string, RosterCell>();
+    for (const c of cells) {
+      const day = parseInt(c.work_date.slice(8, 10), 10);
+      m.set(`${c.employee_id}-${day}`, c);
+    }
+    return m;
+  }, [cells]);
+
+  return (
+    <Card padding="sm" className="overflow-x-auto border-dashed">
+      <div className="mb-2 flex items-center gap-2">
+        <span className="rounded bg-neutral-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-neutral-500">
+          Detached
+        </span>
+        <span className="text-sm font-medium text-neutral-800">{houseName}</span>
+        <span className="text-[11px] text-neutral-400">· view only</span>
+        <button
+          onClick={onClose}
+          className="ml-auto text-neutral-400 hover:text-neutral-700"
+          aria-label="Hide compared house"
+        >
+          <X size={16} />
+        </button>
+      </div>
+      {employees.length === 0 ? (
+        <p className="py-4 text-center text-sm text-neutral-500">
+          No employees in {houseName} for this filter.
+        </p>
+      ) : (
+        <table className="border-collapse text-xs">
+          <thead>
+            <tr>
+              <th className="sticky left-0 z-10 bg-white border-b border-neutral-200 px-2 py-2 text-left font-semibold min-w-[160px]">
+                Employee
+              </th>
+              {visibleDays.map((d) => {
+                const meta = dayMeta.get(d)!;
+                const tip =
+                  meta.holiday ?? (meta.dow === 0 ? "Sunday" : undefined);
+                return (
+                  <th
+                    key={d}
+                    title={tip}
+                    className={
+                      "border-b border-neutral-200 px-1 py-1 text-center font-medium w-8 " +
+                      (meta.holiday
+                        ? "bg-danger-700 text-white"
+                        : meta.dow === 0
+                        ? "bg-danger-50 text-danger-700"
+                        : "text-neutral-600")
+                    }
+                  >
+                    <span
+                      className={
+                        "block text-[9px] font-normal uppercase leading-tight " +
+                        (meta.holiday ? "opacity-90" : "opacity-70")
+                      }
+                    >
+                      {WEEKDAY[meta.dow]}
+                    </span>
+                    <span className="block leading-tight">{d}</span>
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {employees.map((emp) => (
+              <tr key={emp.id} className="hover:bg-neutral-50">
+                <td className="sticky left-0 z-10 bg-white border-b border-neutral-100 px-2 py-1.5 whitespace-nowrap">
+                  <span className="font-medium text-neutral-900">
+                    {emp.last_name} {emp.first_name}
+                  </span>
+                  <span className="block text-[10px] text-neutral-400 capitalize">
+                    {emp.job_title}
+                  </span>
+                </td>
+                {visibleDays.map((d) => {
+                  const cell = cellMap.get(`${emp.id}-${d}`);
+                  const label = cell
+                    ? cell.shift_type_id
+                      ? shiftCode(cell.shift_type_id)
+                      : cell.absence_code
+                    : "";
+                  const isAbsence = !!cell?.absence_code;
+                  const hasNote = !!cell?.notes;
+                  return (
+                    <td
+                      key={d}
+                      title={hasNote ? `Note: ${cell!.notes}` : undefined}
+                      className={
+                        "relative border-b border-l border-neutral-100 text-center h-8 " +
+                        (isAbsence
+                          ? "bg-warning-50 text-warning-700 font-semibold"
+                          : label
+                          ? "bg-primary-50 text-primary-700 font-semibold"
+                          : "")
+                      }
+                    >
+                      {label}
+                      {hasNote && (
+                        <span className="pointer-events-none absolute right-0 top-0 h-0 w-0 border-l-[5px] border-t-[5px] border-l-transparent border-t-danger-500" />
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Card>
+  );
+}
+
 function CellEditor({
   employee,
   dateStr,
@@ -568,6 +969,7 @@ function CellEditor({
   const [saving, setSaving] = useState(false);
   const [savedOnce, setSavedOnce] = useState(false);
   const [savedKind, setSavedKind] = useState<"shift" | "absence" | null>(null);
+  const [note, setNote] = useState(existing?.notes ?? "");
   const [overWarn, setOverWarn] = useState<{
     shiftId: number;
     code: string;
@@ -601,6 +1003,7 @@ function CellEditor({
       await api.put("/roster/cell", {
         employee_id: employee.id,
         work_date: dateStr,
+        notes: note.trim() || null, // carry the cell's note through shift/absence edits
         ...payload,
       });
       toast.success("Saved");
@@ -696,6 +1099,37 @@ function CellEditor({
       onDone();
     } catch (e: any) {
       toast.error(e.response?.data?.detail?.toString() || "Update failed");
+      setSaving(false);
+    }
+  };
+
+  // Save just the note, preserving any shift/absence already on the cell. A
+  // cleared note on an otherwise-empty cell removes the cell entirely.
+  const saveNote = async () => {
+    const text = note.trim();
+    if (text === (existing?.notes ?? "").trim()) return; // nothing changed
+    if (!text && !existing) {
+      onClose();
+      return;
+    }
+    if (!text && existing && !existing.shift_type_id && !existing.absence_code) {
+      return clear(); // note-only cell, note removed → delete the cell
+    }
+    setSaving(true);
+    try {
+      await api.put("/roster/cell", {
+        employee_id: employee.id,
+        work_date: dateStr,
+        shift_type_id: existing?.shift_type_id ?? null,
+        absence_code: existing?.absence_code ?? null,
+        site_id: existing?.site_id ?? null,
+        substitutes_for_id: existing?.substitutes_for_id ?? null,
+        notes: text || null,
+      });
+      toast.success(text ? "Note saved" : "Note removed");
+      onDone();
+    } catch (e: any) {
+      toast.error(e.response?.data?.detail?.toString() || "Save failed");
       setSaving(false);
     }
   };
@@ -811,6 +1245,34 @@ function CellEditor({
               {code}
             </button>
           ))}
+        </div>
+
+        <p className="mt-4 mb-2 text-xs font-medium uppercase text-neutral-500">
+          Comment / note
+        </p>
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          rows={2}
+          maxLength={300}
+          disabled={saving}
+          placeholder="Add a note or comment for this cell…"
+          className="w-full resize-none rounded-lg border border-neutral-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
+        />
+        <div className="mt-1 flex items-center justify-between">
+          <span className="text-[11px] text-neutral-400">
+            {note.length}/300
+          </span>
+          <Button
+            variant="secondary"
+            onClick={saveNote}
+            loading={saving}
+            disabled={
+              saving || note.trim() === (existing?.notes ?? "").trim()
+            }
+          >
+            {note.trim() ? "Save note" : "Remove note"}
+          </Button>
         </div>
 
         {/* Human-in-the-loop substitution helper */}
