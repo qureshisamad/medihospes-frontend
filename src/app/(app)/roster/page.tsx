@@ -35,6 +35,45 @@ const ABSENCE_CODES = Object.keys(ABSENCE_LABELS) as AbsenceCode[];
 // Weekday initials indexed by JS Date.getDay() (0 = Sunday).
 const WEEKDAY = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
+// How a cell renders in a given "viewing" house, accounting for cross-house
+// loans (objective 3, part 2). A cell's effective house is its per-cell
+// site_id override, else the employee's home house.
+//   - "b2out": a home operator working elsewhere that day → shown as B2.
+//   - "onloan": an operator from another house working in this one.
+//   - "normal": ordinary shift/absence in this house (or no house filter).
+type CellKind = "empty" | "normal" | "onloan" | "b2out";
+function deriveCell(
+  cell: RosterCell | undefined,
+  empHome: number | null,
+  viewHouse: number | null,
+  shiftCode: (id: number | null) => string
+): { label: string; kind: CellKind; isAbsence: boolean } {
+  if (!cell) return { label: "", kind: "empty", isAbsence: false };
+  if (
+    viewHouse != null &&
+    empHome === viewHouse &&
+    cell.site_id != null &&
+    cell.site_id !== viewHouse
+  ) {
+    return { label: "B2", kind: "b2out", isAbsence: true };
+  }
+  const eff = cell.site_id ?? empHome;
+  if (viewHouse == null || eff === viewHouse) {
+    if (cell.shift_type_id != null) {
+      const onloan = viewHouse != null && empHome !== viewHouse;
+      return {
+        label: shiftCode(cell.shift_type_id),
+        kind: onloan ? "onloan" : "normal",
+        isAbsence: false,
+      };
+    }
+    if (cell.absence_code) {
+      return { label: cell.absence_code, kind: "normal", isAbsence: true };
+    }
+  }
+  return { label: "", kind: "empty", isAbsence: false };
+}
+
 function daysInMonth(year: number, month: number) {
   return new Date(year, month, 0).getDate();
 }
@@ -68,6 +107,8 @@ export default function RosterPage() {
   const [compareSiteId, setCompareSiteId] = useState<number | "">("");
   const [compareEmployees, setCompareEmployees] = useState<Employee[]>([]);
   const [compareCells, setCompareCells] = useState<RosterCell[]>([]);
+  // Operator being brought over from the detached house (objective 3, part 2).
+  const [bringing, setBringing] = useState<Employee | null>(null);
 
   // Weekly vs monthly view. Weekly shows one Mon–Sun week at a time with
   // prev/next controls; monthly shows the whole month (the original grid).
@@ -149,7 +190,9 @@ export default function RosterPage() {
       ...(siteId !== "" ? { site_id: siteId } : {}),
     };
     Promise.all([
-      api.get("/employees", { params: { is_active: true, ...scope } }),
+      api.get("/employees", {
+        params: { is_active: true, year, month, ...scope },
+      }),
       api.get("/roster", { params: { year, month, ...scope } }),
     ])
       .then(([e, r]) => {
@@ -201,7 +244,9 @@ export default function RosterPage() {
       site_id: compareSiteId,
     };
     Promise.all([
-      api.get("/employees", { params: { is_active: true, ...scope } }),
+      api.get("/employees", {
+        params: { is_active: true, year, month, ...scope },
+      }),
       api.get("/roster", { params: { year, month, ...scope } }),
     ])
       .then(([e, r]) => {
@@ -235,6 +280,20 @@ export default function RosterPage() {
     }
     return m;
   }, [cells]);
+
+  // The house being viewed in the main grid (null when "All locations"), and
+  // lookups used for cross-house loan rendering (part 2).
+  const primarySite = siteId === "" ? null : siteId;
+  const siteName = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const s of sites) m.set(s.id, s.name);
+    return m;
+  }, [sites]);
+  const empHome = useMemo(() => {
+    const m = new Map<number, number | null>();
+    for (const e of employees) m.set(e.id, e.site_id);
+    return m;
+  }, [employees]);
 
   const dateStr = (day: number) =>
     `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
@@ -284,31 +343,40 @@ export default function RosterPage() {
       }
     >();
     if (!hasCoverage) return map;
-    // group visible employees by their house rotation
-    const groups = new Map<number, { pattern: RotationPattern; emps: Employee[] }>();
-    for (const e of employees) {
-      const p = patternByEmp.get(e.id);
-      if (!p) continue;
-      if (!groups.has(p.id)) groups.set(p.id, { pattern: p, emps: [] });
-      groups.get(p.id)!.emps.push(e);
-    }
+    // Distinct house patterns in play (from visible employees' home patterns).
+    const patterns = [
+      ...new Map(
+        [...patternByEmp.values()]
+          .filter((p): p is RotationPattern => !!p)
+          .map((p) => [p.id, p])
+      ).values(),
+    ];
     for (const day of days) {
       let over = false;
       let under = false;
       const overCodes = new Set<string>();
       const underCodes = new Set<string>();
       const overEmpIds = new Set<number>();
-      for (const { pattern, emps } of groups.values()) {
+      for (const pattern of patterns) {
         const req = new Map(
           pattern.coverage.map((c) => [c.shift_type_id, c.required_count])
         );
         const holders = new Map<number, number[]>(); // shift -> empIds
-        for (const e of emps) {
-          const sid = cellMap.get(`${e.id}-${day}`)?.shift_type_id;
-          if (sid != null && req.has(sid)) {
-            if (!holders.has(sid)) holders.set(sid, []);
-            holders.get(sid)!.push(e.id);
-          }
+        for (const e of employees) {
+          const cell = cellMap.get(`${e.id}-${day}`);
+          const sid = cell?.shift_type_id;
+          if (sid == null || !req.has(sid)) continue;
+          // Count a cell toward this house only if it EFFECTIVELY belongs here
+          // (its site override, else the employee's home) — so an on-loan cell
+          // counts for the receiving house and a transferred-out one does not.
+          // Category-wide patterns (no site) fall back to the home pattern map.
+          const belongs =
+            pattern.site_id == null
+              ? patternByEmp.get(e.id)?.id === pattern.id
+              : (cell!.site_id ?? empHome.get(e.id) ?? null) === pattern.site_id;
+          if (!belongs) continue;
+          if (!holders.has(sid)) holders.set(sid, []);
+          holders.get(sid)!.push(e.id);
         }
         for (const [sid, r] of req) {
           const list = holders.get(sid) ?? [];
@@ -331,7 +399,7 @@ export default function RosterPage() {
       });
     }
     return map;
-  }, [employees, patternByEmp, hasCoverage, cellMap, days, shiftTypes]);
+  }, [employees, patternByEmp, hasCoverage, cellMap, days, shiftTypes, empHome]);
 
   const download = async (fmt: "xlsx" | "pdf") => {
     try {
@@ -571,22 +639,37 @@ export default function RosterPage() {
                     <span className="font-medium text-neutral-900">
                       {emp.last_name} {emp.first_name}
                     </span>
+                    {primarySite != null && emp.site_id !== primarySite && (
+                      <span
+                        className="ml-1 rounded bg-info-50 px-1 py-0.5 text-[9px] font-semibold text-info-500"
+                        title={`On loan from ${
+                          siteName.get(emp.site_id ?? -1) ?? "another house"
+                        }`}
+                      >
+                        ⇄ {siteName.get(emp.site_id ?? -1) ?? "loan"}
+                      </span>
+                    )}
                     <span className="block text-[10px] text-neutral-400 capitalize">
                       {emp.job_title}
                     </span>
                   </td>
                   {visibleDays.map((d) => {
                     const cell = cellMap.get(`${emp.id}-${d}`);
-                    const label = cell
-                      ? cell.shift_type_id
-                        ? shiftCode(cell.shift_type_id)
-                        : cell.absence_code
-                      : "";
-                    const isAbsence = !!cell?.absence_code;
-                    // Cell is a duplicate if its shift is over its house's
-                    // required count this day.
+                    const derived = deriveCell(
+                      cell,
+                      emp.site_id ?? null,
+                      primarySite,
+                      shiftCode
+                    );
+                    const label = derived.label;
+                    const isAbsence = derived.isAbsence;
+                    const isOnLoan = derived.kind === "onloan";
+                    const isB2Out = derived.kind === "b2out";
+                    // Cell is a duplicate if its shift is over this house's
+                    // required count this day (never a transferred-out cell).
                     const isDuplicate =
                       cell?.shift_type_id != null &&
+                      !isB2Out &&
                       !!coverageByDay.get(d)?.overEmpIds.has(emp.id);
                     const hasNote = !!cell?.notes;
                     const title =
@@ -595,6 +678,16 @@ export default function RosterPage() {
                           ? `Duplicate: ${shiftCode(
                               cell!.shift_type_id!
                             )} is over its required count this day`
+                          : null,
+                        isOnLoan
+                          ? `On loan from ${
+                              siteName.get(emp.site_id ?? -1) ?? "another house"
+                            }`
+                          : null,
+                        isB2Out
+                          ? `Transferred to ${
+                              siteName.get(cell!.site_id!) ?? "another house"
+                            } (B2)`
                           : null,
                         cell?.substitutes_for_id ? "Substitution" : null,
                         hasNote ? `Note: ${cell!.notes}` : null,
@@ -609,6 +702,10 @@ export default function RosterPage() {
                           "relative border-b border-l border-neutral-100 text-center cursor-pointer h-8 " +
                           (isDuplicate
                             ? "bg-danger-50 text-danger-700 font-bold ring-2 ring-inset ring-danger-500 "
+                            : isB2Out
+                            ? "bg-warning-50 text-warning-600 font-medium italic"
+                            : isOnLoan
+                            ? "bg-info-50 text-info-500 font-semibold ring-1 ring-inset ring-info-500/40"
                             : isAbsence
                             ? "bg-warning-50 text-warning-700 font-semibold"
                             : label
@@ -713,17 +810,42 @@ export default function RosterPage() {
         </Card>
       )}
 
-      {compareSiteId !== "" && (
+      {compareSiteId !== "" && primarySite != null && (
         <CompareGrid
-          houseName={
-            sites.find((s) => s.id === compareSiteId)?.name ?? "Other house"
-          }
+          houseName={siteName.get(compareSiteId) ?? "Other house"}
+          viewHouse={compareSiteId}
+          primaryHouseName={siteName.get(primarySite) ?? "this house"}
           employees={compareEmployees}
           cells={compareCells}
           visibleDays={visibleDays}
           dayMeta={dayMeta}
           shiftTypes={shiftTypes}
+          siteName={siteName}
+          onBring={(emp) => setBringing(emp)}
           onClose={() => setCompareSiteId("")}
+        />
+      )}
+
+      {bringing && primarySite != null && (
+        <BringDialog
+          operator={bringing}
+          targetSite={primarySite}
+          targetSiteName={siteName.get(primarySite) ?? "this house"}
+          homeSiteName={siteName.get(bringing.site_id ?? -1) ?? "their house"}
+          visibleDays={visibleDays}
+          dayMeta={dayMeta}
+          dateStr={dateStr}
+          shiftTypes={shiftTypes}
+          rotations={rotations}
+          primaryEmployees={employees}
+          primaryCellMap={cellMap}
+          empHome={empHome}
+          onClose={() => setBringing(null)}
+          onDone={() => {
+            setBringing(null);
+            loadRoster();
+            loadCompare();
+          }}
         />
       )}
 
@@ -748,6 +870,7 @@ export default function RosterPage() {
           dateStr={dateStr(editing.day)}
           shiftTypes={shiftTypes}
           rotations={rotations}
+          primarySite={primarySite}
           existing={cellMap.get(`${editing.emp.id}-${editing.day}`) ?? null}
           sameDayShiftHolders={(shiftId: number) =>
             employees
@@ -760,10 +883,14 @@ export default function RosterPage() {
               .map((e) => ({ id: e.id, name: `${e.first_name} ${e.last_name}` }))
           }
           onClose={() => setEditing(null)}
-          onReload={loadRoster}
+          onReload={() => {
+            loadRoster();
+            loadCompare(); // a cross-house cell change affects the detached grid
+          }}
           onDone={() => {
             setEditing(null);
             loadRoster();
+            loadCompare();
           }}
         />
       )}
@@ -807,14 +934,20 @@ export default function RosterPage() {
 // colouring) so the two houses line up day-for-day.
 function CompareGrid({
   houseName,
+  viewHouse,
+  primaryHouseName,
   employees,
   cells,
   visibleDays,
   dayMeta,
   shiftTypes,
+  siteName,
+  onBring,
   onClose,
 }: {
   houseName: string;
+  viewHouse: number;
+  primaryHouseName: string;
   employees: Employee[];
   cells: RosterCell[];
   visibleDays: number[];
@@ -823,6 +956,8 @@ function CompareGrid({
     { dow: number; holiday: string | null; isRed: boolean }
   >;
   shiftTypes: ShiftTypeDef[];
+  siteName: Map<number, string>;
+  onBring: (emp: Employee) => void;
   onClose: () => void;
 }) {
   const shiftCode = (id: number | null) =>
@@ -844,7 +979,9 @@ function CompareGrid({
           Detached
         </span>
         <span className="text-sm font-medium text-neutral-800">{houseName}</span>
-        <span className="text-[11px] text-neutral-400">· view only</span>
+        <span className="text-[11px] text-neutral-400">
+          · click a name to bring them to {primaryHouseName}
+        </span>
         <button
           onClick={onClose}
           className="ml-auto text-neutral-400 hover:text-neutral-700"
@@ -896,39 +1033,61 @@ function CompareGrid({
             </tr>
           </thead>
           <tbody>
-            {employees.map((emp) => (
+            {employees.map((emp) => {
+              const onLoanElsewhere = emp.site_id !== viewHouse; // shown here via a cell override
+              return (
               <tr key={emp.id} className="hover:bg-neutral-50">
                 <td className="sticky left-0 z-10 bg-white border-b border-neutral-100 px-2 py-1.5 whitespace-nowrap">
-                  <span className="font-medium text-neutral-900">
+                  <button
+                    onClick={() => onBring(emp)}
+                    className="text-left font-medium text-neutral-900 hover:text-primary-600 hover:underline"
+                    title={`Bring ${emp.first_name} ${emp.last_name} to ${primaryHouseName} for selected days`}
+                  >
                     {emp.last_name} {emp.first_name}
-                  </span>
+                  </button>
+                  {onLoanElsewhere && (
+                    <span className="ml-1 rounded bg-info-50 px-1 py-0.5 text-[9px] font-semibold text-info-500">
+                      ⇄ {siteName.get(emp.site_id ?? -1) ?? "loan"}
+                    </span>
+                  )}
                   <span className="block text-[10px] text-neutral-400 capitalize">
                     {emp.job_title}
                   </span>
                 </td>
                 {visibleDays.map((d) => {
                   const cell = cellMap.get(`${emp.id}-${d}`);
-                  const label = cell
-                    ? cell.shift_type_id
-                      ? shiftCode(cell.shift_type_id)
-                      : cell.absence_code
-                    : "";
-                  const isAbsence = !!cell?.absence_code;
+                  const derived = deriveCell(
+                    cell,
+                    emp.site_id ?? null,
+                    viewHouse,
+                    shiftCode
+                  );
                   const hasNote = !!cell?.notes;
+                  const isB2Out = derived.kind === "b2out";
                   return (
                     <td
                       key={d}
-                      title={hasNote ? `Note: ${cell!.notes}` : undefined}
+                      title={
+                        isB2Out
+                          ? `Transferred to ${
+                              siteName.get(cell!.site_id!) ?? "another house"
+                            } (B2)`
+                          : hasNote
+                          ? `Note: ${cell!.notes}`
+                          : undefined
+                      }
                       className={
                         "relative border-b border-l border-neutral-100 text-center h-8 " +
-                        (isAbsence
+                        (isB2Out
+                          ? "bg-warning-50 text-warning-600 font-medium italic"
+                          : derived.isAbsence
                           ? "bg-warning-50 text-warning-700 font-semibold"
-                          : label
+                          : derived.label
                           ? "bg-primary-50 text-primary-700 font-semibold"
                           : "")
                       }
                     >
-                      {label}
+                      {derived.label}
                       {hasNote && (
                         <span className="pointer-events-none absolute right-0 top-0 h-0 w-0 border-l-[5px] border-t-[5px] border-l-transparent border-t-danger-500" />
                       )}
@@ -936,11 +1095,270 @@ function CompareGrid({
                   );
                 })}
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       )}
     </Card>
+  );
+}
+
+// "Bring an operator from another house for specified days" (objective 3,
+// part 2). Writes one cell per picked day with a site_id override to the target
+// house; the home house then derives B2 for those days. Shift picks are
+// coverage-aware — the day pre-selects the shift the target house is short on.
+function BringDialog({
+  operator,
+  targetSite,
+  targetSiteName,
+  homeSiteName,
+  visibleDays,
+  dayMeta,
+  dateStr,
+  shiftTypes,
+  rotations,
+  primaryEmployees,
+  primaryCellMap,
+  empHome,
+  onClose,
+  onDone,
+}: {
+  operator: Employee;
+  targetSite: number;
+  targetSiteName: string;
+  homeSiteName: string;
+  visibleDays: number[];
+  dayMeta: Map<
+    number,
+    { dow: number; holiday: string | null; isRed: boolean }
+  >;
+  dateStr: (day: number) => string;
+  shiftTypes: ShiftTypeDef[];
+  rotations: RotationPattern[];
+  primaryEmployees: Employee[];
+  primaryCellMap: Map<string, RosterCell>;
+  empHome: Map<number, number | null>;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [picked, setPicked] = useState<Record<number, number>>({});
+  const [saving, setSaving] = useState(false);
+
+  const shiftCode = (id: number | null) =>
+    shiftTypes.find((s) => s.id === id)?.code ?? "?";
+
+  // Target house's rotation for this category (coverage → gap suggestions).
+  const pattern =
+    rotations.find(
+      (r) =>
+        r.is_active &&
+        r.coverage.length > 0 &&
+        r.job_title === operator.job_title &&
+        r.site_id === targetSite
+    ) ??
+    rotations.find(
+      (r) =>
+        r.is_active &&
+        r.coverage.length > 0 &&
+        r.job_title === operator.job_title &&
+        r.site_id === null
+    ) ??
+    null;
+
+  const req = useMemo(
+    () =>
+      new Map(
+        (pattern?.coverage ?? []).map((c) => [c.shift_type_id, c.required_count])
+      ),
+    [pattern]
+  );
+
+  // Current holders per shift IN THE TARGET HOUSE on a day (by effective site).
+  const holdersOn = (day: number) => {
+    const m = new Map<number, number>();
+    for (const e of primaryEmployees) {
+      const c = primaryCellMap.get(`${e.id}-${day}`);
+      const sid = c?.shift_type_id;
+      if (sid == null) continue;
+      const eff = c!.site_id ?? empHome.get(e.id) ?? e.site_id ?? null;
+      if (eff !== targetSite) continue;
+      m.set(sid, (m.get(sid) ?? 0) + 1);
+    }
+    return m;
+  };
+
+  // The shift the target house is short on that day, if any.
+  const shortShiftOn = (day: number): number | null => {
+    if (req.size === 0) return null;
+    const h = holdersOn(day);
+    for (const [sid, r] of req) if ((h.get(sid) ?? 0) < r) return sid;
+    return null;
+  };
+
+  const defaultShift = (day: number): number =>
+    shortShiftOn(day) ??
+    pattern?.coverage[0]?.shift_type_id ??
+    shiftTypes[0]?.id ??
+    0;
+
+  const toggleDay = (day: number) =>
+    setPicked((prev) => {
+      const next = { ...prev };
+      if (day in next) delete next[day];
+      else next[day] = defaultShift(day);
+      return next;
+    });
+
+  const setDayShift = (day: number, shiftId: number) =>
+    setPicked((prev) => ({ ...prev, [day]: shiftId }));
+
+  const pickedDays = Object.keys(picked)
+    .map(Number)
+    .sort((a, b) => a - b);
+
+  const confirm = async () => {
+    if (pickedDays.length === 0) return;
+    setSaving(true);
+    try {
+      for (const day of pickedDays) {
+        await api.put("/roster/cell", {
+          employee_id: operator.id,
+          work_date: dateStr(day),
+          shift_type_id: picked[day],
+          site_id: targetSite,
+        });
+      }
+      toast.success(
+        `Brought ${operator.first_name} ${operator.last_name} to ${targetSiteName} for ${pickedDays.length} day(s).`
+      );
+      onDone();
+    } catch (e: any) {
+      toast.error(
+        e.response?.data?.detail?.toString() || "Could not bring operator"
+      );
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <Card className="w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="flex items-start justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-neutral-900">
+              Bring {operator.last_name} {operator.first_name}
+            </h3>
+            <p className="text-sm text-neutral-500">
+              from {homeSiteName} → <b>{targetSiteName}</b>, for the days you pick
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-neutral-400 hover:text-neutral-700"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <p className="mt-4 mb-2 text-xs font-medium uppercase text-neutral-500">
+          Days &amp; shift
+        </p>
+        <div className="space-y-1">
+          {visibleDays.map((d) => {
+            const meta = dayMeta.get(d)!;
+            const checked = d in picked;
+            const short = shortShiftOn(d);
+            const chosen = picked[d];
+            const isFull = req.size > 0 && short == null;
+            const chosenOverCap =
+              checked &&
+              req.has(chosen) &&
+              (holdersOn(d).get(chosen) ?? 0) >= (req.get(chosen) ?? 0);
+            return (
+              <div
+                key={d}
+                className={
+                  "flex items-center gap-2 rounded-lg px-2 py-1.5 " +
+                  (checked ? "bg-primary-50/50" : "")
+                }
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => toggleDay(d)}
+                  id={`bring-day-${d}`}
+                />
+                <label
+                  htmlFor={`bring-day-${d}`}
+                  className={
+                    "w-14 text-sm " +
+                    (meta.isRed
+                      ? "text-danger-700 font-medium"
+                      : "text-neutral-700")
+                  }
+                >
+                  {WEEKDAY[meta.dow]} {d}
+                </label>
+                {checked ? (
+                  <>
+                    <select
+                      value={chosen}
+                      onChange={(e) => setDayShift(d, Number(e.target.value))}
+                      className="h-8 rounded-lg border border-neutral-300 px-2 text-sm"
+                    >
+                      {shiftTypes.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.code}
+                        </option>
+                      ))}
+                    </select>
+                    {chosenOverCap ? (
+                      <span className="text-[11px] font-medium text-warning-700">
+                        ⚠ already full
+                      </span>
+                    ) : req.has(chosen) ? (
+                      <span className="text-[11px] text-success-700">
+                        fills a gap
+                      </span>
+                    ) : null}
+                  </>
+                ) : (
+                  <span className="text-[11px] text-neutral-400">
+                    {req.size === 0
+                      ? ""
+                      : isFull
+                      ? "fully staffed"
+                      : `short: ${shiftCode(short)}`}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="mt-4 rounded-lg bg-neutral-50 p-3 text-xs text-neutral-500">
+          On the picked days, {operator.first_name} shows as{" "}
+          <b>on loan</b> in {targetSiteName} and <b>B2</b> (transferred) in{" "}
+          {homeSiteName}. Their other days stay unchanged — clear a cell later to
+          undo.
+        </div>
+
+        <div className="mt-5 flex justify-between">
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            onClick={confirm}
+            loading={saving}
+            disabled={pickedDays.length === 0 || saving}
+          >
+            Bring for {pickedDays.length} day
+            {pickedDays.length === 1 ? "" : "s"}
+          </Button>
+        </div>
+      </Card>
+    </div>
   );
 }
 
@@ -949,6 +1367,7 @@ function CellEditor({
   dateStr,
   shiftTypes,
   rotations,
+  primarySite,
   existing,
   sameDayShiftHolders,
   onClose,
@@ -959,12 +1378,21 @@ function CellEditor({
   dateStr: string;
   shiftTypes: ShiftTypeDef[];
   rotations: RotationPattern[];
+  primarySite: number | null;
   existing: RosterCell | null;
   sameDayShiftHolders: (shiftId: number) => { id: number; name: string }[];
   onClose: () => void;
   onReload: () => void;
   onDone: () => void;
 }) {
+  // House this cell should belong to: keep an existing override, otherwise if
+  // we're editing an on-loan operator in a house that isn't theirs, keep them
+  // in this (receiving) house rather than silently sending them home.
+  const cellSite =
+    existing?.site_id ??
+    (primarySite != null && employee.site_id !== primarySite
+      ? primarySite
+      : null);
   const [subs, setSubs] = useState<SubstituteCandidate[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedOnce, setSavedOnce] = useState(false);
@@ -1003,6 +1431,7 @@ function CellEditor({
       await api.put("/roster/cell", {
         employee_id: employee.id,
         work_date: dateStr,
+        site_id: cellSite, // preserve/keep the cross-house loan override
         notes: note.trim() || null, // carry the cell's note through shift/absence edits
         ...payload,
       });
@@ -1122,7 +1551,7 @@ function CellEditor({
         work_date: dateStr,
         shift_type_id: existing?.shift_type_id ?? null,
         absence_code: existing?.absence_code ?? null,
-        site_id: existing?.site_id ?? null,
+        site_id: cellSite,
         substitutes_for_id: existing?.substitutes_for_id ?? null,
         notes: text || null,
       });
