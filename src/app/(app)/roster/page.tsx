@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import {
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -41,7 +42,7 @@ const WEEKDAY = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 //   - "b2out": a home operator working elsewhere that day → shown as B2.
 //   - "onloan": an operator from another house working in this one.
 //   - "normal": ordinary shift/absence in this house (or no house filter).
-type CellKind = "empty" | "normal" | "onloan" | "b2out";
+type CellKind = "empty" | "normal" | "onloan" | "b2out" | "pending";
 function deriveCell(
   cell: RosterCell | undefined,
   empHome: number | null,
@@ -49,6 +50,13 @@ function deriveCell(
   shiftCode: (id: number | null) => string
 ): { label: string; kind: CellKind; isAbsence: boolean } {
   if (!cell) return { label: "", kind: "empty", isAbsence: false };
+  if (cell.is_pending) {
+    // Pending belongs to the person's home house (no site override).
+    if (viewHouse == null || empHome === viewHouse) {
+      return { label: "Pend", kind: "pending", isAbsence: false };
+    }
+    return { label: "", kind: "empty", isAbsence: false };
+  }
   if (
     viewHouse != null &&
     empHome === viewHouse &&
@@ -104,10 +112,13 @@ export default function RosterPage() {
 
   // "Detached" second house shown below the main grid for coordination
   // (objective 3, part 1). Read-only reference of another casa's cells.
-  const [compareSiteId, setCompareSiteId] = useState<number | "">("");
-  const [compareEmployees, setCompareEmployees] = useState<Employee[]>([]);
-  const [compareCells, setCompareCells] = useState<RosterCell[]>([]);
-  // Operator being brought over from the detached house (objective 3, part 2).
+  // "Compare with…" — one or more houses shown detached below the main grid.
+  const [compareSiteIds, setCompareSiteIds] = useState<number[]>([]);
+  const [compareData, setCompareData] = useState<
+    Map<number, { employees: Employee[]; cells: RosterCell[] }>
+  >(new Map());
+  const [compareOpen, setCompareOpen] = useState(false);
+  // Operator being brought over from a detached house (objective 3, part 2).
   const [bringing, setBringing] = useState<Employee | null>(null);
 
   // Weekly vs monthly view. Weekly shows one Mon–Sun week at a time with
@@ -229,45 +240,53 @@ export default function RosterPage() {
     loadRoster();
   }, [loadRoster]);
 
-  // Load the detached compare house (same category/dept scope, different site).
+  // Load every selected detached house (same category/dept scope, per site).
   const compareSeq = useRef(0);
   const loadCompare = useCallback(() => {
     const seq = ++compareSeq.current;
-    if (compareSiteId === "") {
-      setCompareEmployees([]);
-      setCompareCells([]);
+    if (compareSiteIds.length === 0) {
+      setCompareData(new Map());
       return;
     }
-    const scope = {
+    const base = {
       ...(departmentId !== "" ? { department_id: departmentId } : {}),
       ...(jobTitle !== "" ? { job_title: jobTitle } : {}),
-      site_id: compareSiteId,
     };
-    Promise.all([
-      api.get("/employees", {
-        params: { is_active: true, year, month, ...scope },
-      }),
-      api.get("/roster", { params: { year, month, ...scope } }),
-    ])
-      .then(([e, r]) => {
+    Promise.all(
+      compareSiteIds.map(async (sid) => {
+        const [e, r] = await Promise.all([
+          api.get("/employees", {
+            params: { is_active: true, year, month, ...base, site_id: sid },
+          }),
+          api.get("/roster", { params: { year, month, ...base, site_id: sid } }),
+        ]);
+        return [sid, { employees: e.data, cells: r.data }] as const;
+      })
+    )
+      .then((entries) => {
         if (seq !== compareSeq.current) return; // superseded
-        setCompareEmployees(e.data);
-        setCompareCells(r.data);
+        setCompareData(new Map(entries));
       })
       .catch(() => {
-        if (seq === compareSeq.current) toast.error("Failed to load compared house");
+        if (seq === compareSeq.current)
+          toast.error("Failed to load compared houses");
       });
-  }, [compareSiteId, year, month, departmentId, jobTitle]);
+  }, [compareSiteIds, year, month, departmentId, jobTitle]);
 
   useEffect(() => {
     loadCompare();
   }, [loadCompare]);
 
-  // A compare house only makes sense against a chosen primary house; drop it
-  // when no primary site is selected or it would duplicate the primary.
+  // Compare houses only make sense against a chosen primary house; clear them
+  // when no primary site is selected, and never let one duplicate the primary.
   useEffect(() => {
-    if (siteId === "" || siteId === compareSiteId) setCompareSiteId("");
-  }, [siteId, compareSiteId]);
+    if (siteId === "") {
+      setCompareSiteIds([]);
+      setCompareOpen(false);
+    } else {
+      setCompareSiteIds((prev) => prev.filter((id) => id !== siteId));
+    }
+  }, [siteId]);
 
   const shiftCode = (id: number | null) =>
     shiftTypes.find((s) => s.id === id)?.code ?? "?";
@@ -513,23 +532,67 @@ export default function RosterPage() {
             ))}
           </select>
           {siteId !== "" && (
-            <select
-              value={compareSiteId}
-              onChange={(e) =>
-                setCompareSiteId(
-                  e.target.value === "" ? "" : Number(e.target.value)
-                )
-              }
-              title="Show a second house below for coordination"
-              className="h-10 rounded-lg border border-dashed border-neutral-400 px-3 text-sm"
-            >
-              <option value="">+ Compare with…</option>
-              {sites
-                .filter((s) => s.id !== siteId)
-                .map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-            </select>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setCompareOpen((o) => !o)}
+                title="Pick one or more houses to show below for coordination"
+                className="flex h-10 items-center gap-1 rounded-lg border border-dashed border-neutral-400 px-3 text-sm"
+              >
+                {compareSiteIds.length === 0
+                  ? "+ Compare with…"
+                  : `Comparing ${compareSiteIds.length} house${
+                      compareSiteIds.length > 1 ? "s" : ""
+                    }`}
+                <ChevronDown size={14} />
+              </button>
+              {compareOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-20"
+                    onClick={() => setCompareOpen(false)}
+                  />
+                  <div className="absolute left-0 top-11 z-30 max-h-72 w-64 overflow-y-auto rounded-lg border border-neutral-200 bg-white p-1.5 shadow-lg">
+                    {sites
+                      .filter((s) => s.id !== siteId)
+                      .map((s) => {
+                        const on = compareSiteIds.includes(s.id);
+                        return (
+                          <label
+                            key={s.id}
+                            className={
+                              "flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm " +
+                              (on ? "bg-primary-50" : "hover:bg-neutral-50")
+                            }
+                          >
+                            <input
+                              type="checkbox"
+                              checked={on}
+                              onChange={() =>
+                                setCompareSiteIds((prev) =>
+                                  prev.includes(s.id)
+                                    ? prev.filter((x) => x !== s.id)
+                                    : [...prev, s.id]
+                                )
+                              }
+                            />
+                            {s.name}
+                          </label>
+                        );
+                      })}
+                    {compareSiteIds.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setCompareSiteIds([])}
+                        className="mt-1 w-full rounded px-2 py-1.5 text-left text-xs text-neutral-500 hover:bg-neutral-50"
+                      >
+                        Clear all
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           )}
         </div>
 
@@ -615,13 +678,17 @@ export default function RosterPage() {
                           ? "bg-danger-700 text-white" // festività — dark red
                           : meta.dow === 0
                           ? "bg-danger-50 text-danger-700" // Sunday — light red
-                          : "text-neutral-600")
+                          : "text-black")
                       }
                     >
                       <span
                         className={
                           "block text-[9px] font-normal uppercase leading-tight " +
-                          (meta.holiday ? "opacity-90" : "opacity-70")
+                          (meta.holiday
+                            ? "opacity-90"
+                            : meta.dow === 0
+                            ? ""
+                            : "text-black")
                         }
                       >
                         {WEEKDAY[meta.dow]}
@@ -665,6 +732,7 @@ export default function RosterPage() {
                     const isAbsence = derived.isAbsence;
                     const isOnLoan = derived.kind === "onloan";
                     const isB2Out = derived.kind === "b2out";
+                    const isPending = derived.kind === "pending";
                     // Cell is a duplicate if its shift is over this house's
                     // required count this day (never a transferred-out cell).
                     const isDuplicate =
@@ -689,6 +757,9 @@ export default function RosterPage() {
                               siteName.get(cell!.site_id!) ?? "another house"
                             } (B2)`
                           : null,
+                        isPending
+                          ? "Pending — benched (not in the rotation today)"
+                          : null,
                         cell?.substitutes_for_id ? "Substitution" : null,
                         hasNote ? `Note: ${cell!.notes}` : null,
                       ]
@@ -706,6 +777,8 @@ export default function RosterPage() {
                             ? "bg-warning-50 text-warning-600 font-medium italic"
                             : isOnLoan
                             ? "bg-info-50 text-info-500 font-semibold ring-1 ring-inset ring-info-500/40"
+                            : isPending
+                            ? "bg-neutral-100 text-neutral-400 font-medium italic"
                             : isAbsence
                             ? "bg-warning-50 text-warning-700 font-semibold"
                             : label
@@ -810,21 +883,28 @@ export default function RosterPage() {
         </Card>
       )}
 
-      {compareSiteId !== "" && primarySite != null && (
-        <CompareGrid
-          houseName={siteName.get(compareSiteId) ?? "Other house"}
-          viewHouse={compareSiteId}
-          primaryHouseName={siteName.get(primarySite) ?? "this house"}
-          employees={compareEmployees}
-          cells={compareCells}
-          visibleDays={visibleDays}
-          dayMeta={dayMeta}
-          shiftTypes={shiftTypes}
-          siteName={siteName}
-          onBring={(emp) => setBringing(emp)}
-          onClose={() => setCompareSiteId("")}
-        />
-      )}
+      {primarySite != null &&
+        compareSiteIds.map((sid) => {
+          const data = compareData.get(sid);
+          return (
+            <CompareGrid
+              key={sid}
+              houseName={siteName.get(sid) ?? "Other house"}
+              viewHouse={sid}
+              primaryHouseName={siteName.get(primarySite) ?? "this house"}
+              employees={data?.employees ?? []}
+              cells={data?.cells ?? []}
+              visibleDays={visibleDays}
+              dayMeta={dayMeta}
+              shiftTypes={shiftTypes}
+              siteName={siteName}
+              onBring={(emp) => setBringing(emp)}
+              onClose={() =>
+                setCompareSiteIds((prev) => prev.filter((x) => x !== sid))
+              }
+            />
+          );
+        })}
 
       {bringing && primarySite != null && (
         <BringDialog
@@ -882,6 +962,17 @@ export default function RosterPage() {
               )
               .map((e) => ({ id: e.id, name: `${e.first_name} ${e.last_name}` }))
           }
+          dayPendingPerson={(() => {
+            // Someone else in the same house benched (pending) that day — the
+            // swap target when marking this person pending.
+            const p = employees.find(
+              (e) =>
+                e.id !== editing.emp.id &&
+                e.site_id === editing.emp.site_id &&
+                cellMap.get(`${e.id}-${editing.day}`)?.is_pending
+            );
+            return p ? { id: p.id, name: `${p.first_name} ${p.last_name}` } : null;
+          })()}
           onClose={() => setEditing(null)}
           onReload={() => {
             loadRoster();
@@ -1015,13 +1106,17 @@ function CompareGrid({
                         ? "bg-danger-700 text-white"
                         : meta.dow === 0
                         ? "bg-danger-50 text-danger-700"
-                        : "text-neutral-600")
+                        : "text-black")
                     }
                   >
                     <span
                       className={
                         "block text-[9px] font-normal uppercase leading-tight " +
-                        (meta.holiday ? "opacity-90" : "opacity-70")
+                        (meta.holiday
+                          ? "opacity-90"
+                          : meta.dow === 0
+                          ? ""
+                          : "text-black")
                       }
                     >
                       {WEEKDAY[meta.dow]}
@@ -1064,6 +1159,7 @@ function CompareGrid({
                   );
                   const hasNote = !!cell?.notes;
                   const isB2Out = derived.kind === "b2out";
+                  const isPending = derived.kind === "pending";
                   return (
                     <td
                       key={d}
@@ -1072,6 +1168,8 @@ function CompareGrid({
                           ? `Transferred to ${
                               siteName.get(cell!.site_id!) ?? "another house"
                             } (B2)`
+                          : isPending
+                          ? "Pending — benched (not in the rotation today)"
                           : hasNote
                           ? `Note: ${cell!.notes}`
                           : undefined
@@ -1080,6 +1178,8 @@ function CompareGrid({
                         "relative border-b border-l border-neutral-100 text-center h-8 " +
                         (isB2Out
                           ? "bg-warning-50 text-warning-600 font-medium italic"
+                          : isPending
+                          ? "bg-neutral-100 text-neutral-400 font-medium italic"
                           : derived.isAbsence
                           ? "bg-warning-50 text-warning-700 font-semibold"
                           : derived.label
@@ -1370,6 +1470,7 @@ function CellEditor({
   primarySite,
   existing,
   sameDayShiftHolders,
+  dayPendingPerson,
   onClose,
   onReload,
   onDone,
@@ -1381,6 +1482,7 @@ function CellEditor({
   primarySite: number | null;
   existing: RosterCell | null;
   sameDayShiftHolders: (shiftId: number) => { id: number; name: string }[];
+  dayPendingPerson: { id: number; name: string } | null;
   onClose: () => void;
   onReload: () => void;
   onDone: () => void;
@@ -1577,6 +1679,40 @@ function CellEditor({
     }
   };
 
+  // Bench this person as pending. If they currently hold a home-house shift and
+  // someone else is already pending today, swap: that person takes the shift so
+  // coverage stays intact and this person becomes pending.
+  const markPending = async () => {
+    setSaving(true);
+    try {
+      const canSwap =
+        existing?.shift_type_id != null &&
+        existing.site_id == null &&
+        dayPendingPerson != null;
+      if (canSwap) {
+        await api.put("/roster/cell", {
+          employee_id: dayPendingPerson!.id,
+          work_date: dateStr,
+          shift_type_id: existing!.shift_type_id,
+        });
+      }
+      await api.put("/roster/cell", {
+        employee_id: employee.id,
+        work_date: dateStr,
+        is_pending: true,
+      });
+      toast.success(
+        canSwap
+          ? `${dayPendingPerson!.name} takes the shift; ${employee.first_name} is now pending.`
+          : `${employee.first_name} set to pending.`
+      );
+      onDone();
+    } catch (e: any) {
+      toast.error(e.response?.data?.detail?.toString() || "Failed");
+      setSaving(false);
+    }
+  };
+
   const loadSubs = async () => {
     try {
       const res = await api.get("/roster/substitutes", {
@@ -1674,6 +1810,38 @@ function CellEditor({
               {code}
             </button>
           ))}
+        </div>
+
+        <p className="mt-4 mb-2 text-xs font-medium uppercase text-neutral-500">
+          Rotation
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          {existing?.is_pending ? (
+            <button
+              disabled={saving}
+              onClick={clear}
+              className="rounded-lg border border-neutral-400 bg-neutral-100 px-3 py-1.5 text-sm font-medium text-neutral-600 italic"
+            >
+              Pending — click to un-bench
+            </button>
+          ) : (
+            <button
+              disabled={saving}
+              onClick={markPending}
+              className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium hover:bg-neutral-50"
+              title="Bench this person (not in the rotation this day)"
+            >
+              Mark pending
+            </button>
+          )}
+          {!existing?.is_pending &&
+            existing?.shift_type_id != null &&
+            existing.site_id == null &&
+            dayPendingPerson && (
+              <span className="text-[11px] text-neutral-400">
+                swaps the shift to {dayPendingPerson.name}
+              </span>
+            )}
         </div>
 
         <p className="mt-4 mb-2 text-xs font-medium uppercase text-neutral-500">
@@ -1850,25 +2018,69 @@ function AutoFillModal({
   const [running, setRunning] = useState(false);
   const [autoStagger, setAutoStagger] = useState(true);
   const [result, setResult] = useState<AutoFillResult | null>(null);
+  // When a house has more staff than the coverage needs, ask who sits out.
+  const [pendingPicker, setPendingPicker] = useState<{
+    pattern: RotationPattern;
+    employees: Employee[];
+    total: number;
+    selected: Set<number>;
+  } | null>(null);
 
   const codeOf = (id: number) => shiftTypes.find((s) => s.id === id)?.code ?? "?";
   const labelOf = (jt: string) =>
     jobTitles.find((j) => j.name === jt)?.label ?? jt;
+  const coverageTotal = (p: RotationPattern) =>
+    p.coverage.reduce((s, c) => s + c.required_count, 0);
 
   // Show the rotation(s) for the active category first, if one is filtered.
   const ordered = [...rotations].sort((a, b) =>
     a.job_title === activeJobTitle ? -1 : b.job_title === activeJobTitle ? 1 : 0
   );
 
-  const run = async (pattern: RotationPattern) => {
+  // Coverage patterns with surplus staff first prompt for who's pending.
+  const startRun = async (pattern: RotationPattern) => {
+    if (pattern.coverage.length === 0) {
+      doRun(pattern, []);
+      return;
+    }
+    const total = coverageTotal(pattern);
+    try {
+      const res = await api.get("/employees", {
+        params: {
+          is_active: true,
+          job_title: pattern.job_title,
+          ...(pattern.site_id != null ? { site_id: pattern.site_id } : {}),
+        },
+      });
+      const emps = res.data as Employee[];
+      if (emps.length > total) {
+        // Pre-select the surplus (last n − total by name) as a one-click default.
+        const surplus = emps.slice(total);
+        setPendingPicker({
+          pattern,
+          employees: emps,
+          total,
+          selected: new Set(surplus.map((e) => e.id)),
+        });
+      } else {
+        doRun(pattern, []);
+      }
+    } catch {
+      doRun(pattern, []); // if the pre-check fails, just fill
+    }
+  };
+
+  const doRun = async (pattern: RotationPattern, pendingIds: number[]) => {
     setRunning(true);
     setResult(null);
+    setPendingPicker(null);
     try {
       const res = await api.post("/roster/auto-fill", {
         year,
         month,
         pattern_id: pattern.id,
         auto_stagger: autoStagger,
+        pending_employee_ids: pendingIds,
         ...(departmentId !== "" ? { department_id: departmentId } : {}),
       });
       const r = res.data as AutoFillResult;
@@ -1887,6 +2099,101 @@ function AutoFillModal({
       setRunning(false);
     }
   };
+
+  if (pendingPicker) {
+    const { pattern, employees, total, selected } = pendingPicker;
+    const n = employees.length;
+    const surplus = n - total;
+    const balanced = selected.size === surplus;
+    const toggle = (id: number) =>
+      setPendingPicker((prev) => {
+        if (!prev) return prev;
+        const next = new Set(prev.selected);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return { ...prev, selected: next };
+      });
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <Card className="w-full max-w-md max-h-[90vh] overflow-y-auto">
+          <div className="flex items-start justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-neutral-900">
+                Who sits out?
+              </h3>
+              <p className="mt-1 text-sm text-neutral-500">
+                {pattern.name} has <b>{n}</b> staff but the rotation needs{" "}
+                <b>{total}</b>. Mark the surplus <b>{surplus}</b> as pending —
+                they&apos;re benched (0h) and the rest cover every shift.
+              </p>
+            </div>
+            <button
+              onClick={() => setPendingPicker(null)}
+              className="text-neutral-400 hover:text-neutral-700"
+            >
+              <X size={20} />
+            </button>
+          </div>
+
+          <div className="mt-4 space-y-1">
+            {employees.map((e) => {
+              const on = selected.has(e.id);
+              return (
+                <label
+                  key={e.id}
+                  className={
+                    "flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm cursor-pointer " +
+                    (on ? "bg-neutral-100 text-neutral-500" : "hover:bg-neutral-50")
+                  }
+                >
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    onChange={() => toggle(e.id)}
+                  />
+                  <span className={on ? "italic" : "font-medium"}>
+                    {e.last_name} {e.first_name}
+                  </span>
+                  {on && (
+                    <span className="ml-auto text-[11px] text-neutral-400">
+                      pending
+                    </span>
+                  )}
+                </label>
+              );
+            })}
+          </div>
+
+          <p
+            className={
+              "mt-2 text-[11px] " +
+              (balanced ? "text-success-700" : "text-warning-700")
+            }
+          >
+            {selected.size} selected ·{" "}
+            {balanced
+              ? `${total} will work — coverage balances`
+              : `pick ${surplus} to balance (${
+                  n - selected.size
+                } would work vs ${total} needed)`}
+          </p>
+
+          <div className="mt-5 flex justify-between">
+            <Button variant="ghost" onClick={() => setPendingPicker(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => doRun(pattern, [...selected])}
+              loading={running}
+              disabled={running}
+            >
+              Fill — {n - selected.size} working, {selected.size} pending
+            </Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -1956,7 +2263,7 @@ function AutoFillModal({
                     </div>
                   </div>
                   <Button
-                    onClick={() => run(p)}
+                    onClick={() => startRun(p)}
                     loading={running}
                     disabled={running}
                   >

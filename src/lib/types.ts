@@ -87,6 +87,7 @@ export interface RosterCell {
   absence_code: AbsenceCode | null;
   site_id: number | null;
   substitutes_for_id: number | null;
+  is_pending: boolean;
   notes: string | null;
   created_at: string;
 }
