@@ -791,9 +791,11 @@ export default function RosterPage() {
                         {cell?.substitutes_for_id ? "*" : ""}
                         {hasNote && (
                           <span
-                            className="pointer-events-none absolute right-0 top-0 h-0 w-0 border-l-[5px] border-t-[5px] border-l-transparent border-t-danger-500"
+                            className="pointer-events-none absolute right-0.5 top-0 text-[20px] font-bold leading-none text-danger-500"
                             aria-label="Has comment"
-                          />
+                          >
+                            *
+                          </span>
                         )}
                       </td>
                     );
@@ -1189,7 +1191,12 @@ function CompareGrid({
                     >
                       {derived.label}
                       {hasNote && (
-                        <span className="pointer-events-none absolute right-0 top-0 h-0 w-0 border-l-[5px] border-t-[5px] border-l-transparent border-t-danger-500" />
+                        <span
+                          className="pointer-events-none absolute right-0.5 top-0 text-[20px] font-bold leading-none text-danger-500"
+                          aria-label="Has comment"
+                        >
+                          *
+                        </span>
                       )}
                     </td>
                   );
