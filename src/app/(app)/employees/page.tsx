@@ -54,6 +54,8 @@ export default function EmployeesPage() {
   const [editing, setEditing] = useState<Employee | null>(null);
   const [form, setForm] = useState<FormData>(emptyForm);
   const [submitting, setSubmitting] = useState(false);
+  const [filterSite, setFilterSite] = useState<string>("");
+  const [filterJob, setFilterJob] = useState<string>("");
 
   const fetchEmployees = () => {
     setLoading(true);
@@ -76,6 +78,17 @@ export default function EmployeesPage() {
 
   const deptName = (id: number) =>
     departments.find((d) => d.id === id)?.name ?? "—";
+  const siteName = (id: number | null) =>
+    sites.find((s) => s.id === id)?.name ?? "—";
+
+  const shown = employees.filter(
+    (e) =>
+      (filterSite === "" ||
+        (filterSite === "none"
+          ? e.site_id == null
+          : String(e.site_id ?? "") === filterSite)) &&
+      (filterJob === "" || e.job_title === filterJob)
+  );
 
   const openCreate = () => {
     setEditing(null);
@@ -350,15 +363,65 @@ export default function EmployeesPage() {
         </Card>
       )}
 
+      {!loading && employees.length > 0 && (
+        <Card padding="sm">
+          <div className="flex flex-wrap items-center gap-3">
+            <select
+              value={filterSite}
+              onChange={(e) => setFilterSite(e.target.value)}
+              className="h-10 rounded-lg border border-neutral-300 px-3 text-sm"
+            >
+              <option value="">All sites</option>
+              {sites.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+              <option value="none">— No site —</option>
+            </select>
+            <select
+              value={filterJob}
+              onChange={(e) => setFilterJob(e.target.value)}
+              className="h-10 rounded-lg border border-neutral-300 px-3 text-sm"
+            >
+              <option value="">All job titles</option>
+              {jobTitles.map((j) => (
+                <option key={j.id} value={j.name}>{j.label}</option>
+              ))}
+            </select>
+            {(filterSite || filterJob) && (
+              <>
+                <button
+                  onClick={() => {
+                    setFilterSite("");
+                    setFilterJob("");
+                  }}
+                  className="text-sm text-neutral-500 hover:text-neutral-800"
+                >
+                  Clear filters
+                </button>
+                <span className="text-sm text-neutral-400">
+                  {shown.length} of {employees.length}
+                </span>
+              </>
+            )}
+          </div>
+        </Card>
+      )}
+
       {loading ? (
         <div className="h-24 rounded-xl bg-neutral-100 animate-pulse" />
       ) : employees.length === 0 ? (
         <Card>
           <p className="text-center text-neutral-500 py-6">No employees yet.</p>
         </Card>
+      ) : shown.length === 0 ? (
+        <Card>
+          <p className="text-center text-neutral-500 py-6">
+            No employees match these filters.
+          </p>
+        </Card>
       ) : (
         <div className="space-y-3">
-          {employees.map((e) => (
+          {shown.map((e) => (
             <Card
               key={e.id}
               className={"flex items-center gap-4" + (!e.is_active ? " opacity-60" : "")}
@@ -383,7 +446,8 @@ export default function EmployeesPage() {
                   )}
                 </div>
                 <div className="mt-0.5 text-xs text-neutral-500">
-                  {deptName(e.department_id)} ·{" "}
+                  {deptName(e.department_id)}
+                  {e.site_id != null && ` · ${siteName(e.site_id)}`} ·{" "}
                   {e.contract_type.replace("_", " ")} · {e.monthly_hour_limit}h/mo
                   {e.coverable_roles.length > 0 &&
                     ` · covers: ${e.coverable_roles.join(", ")}`}

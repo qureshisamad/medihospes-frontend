@@ -362,10 +362,16 @@ export default function RosterPage() {
       }
     >();
     if (!hasCoverage) return map;
-    // Distinct house patterns in play (from visible employees' home patterns).
+    // Distinct house patterns to evaluate. Only the houses actually shown as
+    // PRIMARY here count — an on-loan employee must NOT drag in their HOME
+    // house's pattern, which would have no holders in this view and mark every
+    // day incomplete. Their cells still COUNT toward the receiving house via
+    // the effective-site check below.
     const patterns = [
       ...new Map(
-        [...patternByEmp.values()]
+        employees
+          .filter((e) => primarySite == null || e.site_id === primarySite)
+          .map((e) => patternByEmp.get(e.id))
           .filter((p): p is RotationPattern => !!p)
           .map((p) => [p.id, p])
       ).values(),
@@ -418,7 +424,16 @@ export default function RosterPage() {
       });
     }
     return map;
-  }, [employees, patternByEmp, hasCoverage, cellMap, days, shiftTypes, empHome]);
+  }, [
+    employees,
+    patternByEmp,
+    hasCoverage,
+    cellMap,
+    days,
+    shiftTypes,
+    empHome,
+    primarySite,
+  ]);
 
   const download = async (fmt: "xlsx" | "pdf") => {
     try {
@@ -1514,10 +1529,17 @@ function CellEditor({
     req: number;
     holder: { id: number; name: string };
   } | null>(null);
+  // Multi-day absence (e.g. Ferie/B across a span) — pick a code + days.
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkCode, setBulkCode] = useState<AbsenceCode>(ABSENCE_CODES[0]);
+  const [bulkDays, setBulkDays] = useState<Set<number>>(
+    () => new Set([Number(dateStr.slice(8, 10))])
+  );
 
-  // The shift this cell held before the edit — the gap to cover when a leave
-  // replaces a working shift.
-  const gapShiftId = existing?.shift_type_id ?? null;
+  // The shift this cell held when the editor opened — the gap to cover when a
+  // leave replaces a working shift. Captured in state so it survives the cell
+  // becoming an absence (the editor stays open and re-renders on save).
+  const [gapShiftId] = useState<number | null>(existing?.shift_type_id ?? null);
 
   // The rotation pattern for this employee's category + house (for
   // propagation). Prefer the house-specific one; fall back to category-wide.
@@ -1737,6 +1759,69 @@ function CellEditor({
     }
   };
 
+  // Click a suggested substitute to assign them to the gap shift. A substitute
+  // from another house is placed on loan (site override) to the gap's house.
+  const assignSub = async (s: SubstituteCandidate) => {
+    if (gapShiftId == null) {
+      toast.error("No shift to cover here — set the shift first.");
+      return;
+    }
+    const code = shiftTypes.find((st) => st.id === gapShiftId)?.code ?? "the shift";
+    setSaving(true);
+    try {
+      const gapHouse = primarySite ?? employee.site_id ?? null;
+      await api.put("/roster/cell", {
+        employee_id: s.employee_id,
+        work_date: dateStr,
+        shift_type_id: gapShiftId,
+        substitutes_for_id: employee.id,
+        ...(s.is_cross_site && gapHouse != null ? { site_id: gapHouse } : {}),
+      });
+      toast.success(`${s.name} assigned to cover ${code}.`);
+      onDone();
+    } catch (e: any) {
+      toast.error(
+        e.response?.data?.detail?.toString() || "Could not assign substitute"
+      );
+      setSaving(false);
+    }
+  };
+
+  // Apply one absence code across several picked days at once (e.g. Ferie/B).
+  const toggleBulkDay = (d: number) =>
+    setBulkDays((prev) => {
+      const next = new Set(prev);
+      if (next.has(d)) next.delete(d);
+      else next.add(d);
+      return next;
+    });
+
+  const applyBulkAbsence = async () => {
+    const daysList = [...bulkDays].sort((a, b) => a - b);
+    if (daysList.length === 0) return;
+    setSaving(true);
+    try {
+      for (const d of daysList) {
+        const ds = `${yy}-${String(mm).padStart(2, "0")}-${String(d).padStart(
+          2,
+          "0"
+        )}`;
+        await api.put("/roster/cell", {
+          employee_id: employee.id,
+          work_date: ds,
+          absence_code: bulkCode,
+        });
+      }
+      toast.success(`${bulkCode} set for ${daysList.length} day(s).`);
+      onDone();
+    } catch (e: any) {
+      toast.error(
+        e.response?.data?.detail?.toString() || "Could not apply absence"
+      );
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <Card className="w-full max-w-md max-h-[90vh] overflow-y-auto">
@@ -1800,7 +1885,7 @@ function CellEditor({
         <p className="mt-4 mb-2 text-xs font-medium uppercase text-neutral-500">
           Absence
         </p>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {ABSENCE_CODES.map((code) => (
             <button
               key={code}
@@ -1817,7 +1902,79 @@ function CellEditor({
               {code}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => setBulkOpen((o) => !o)}
+            className="rounded-lg border border-dashed border-neutral-400 px-3 py-1.5 text-sm font-medium text-neutral-600 hover:bg-neutral-50"
+          >
+            Multiple days…
+          </button>
         </div>
+
+        {bulkOpen && (
+          <div className="mt-2 rounded-lg border border-neutral-200 bg-neutral-50 p-3">
+            <p className="mb-2 text-xs text-neutral-600">
+              Apply an absence across several days (e.g. Ferie). Pick the code,
+              then tap the days.
+            </p>
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {ABSENCE_CODES.map((code) => (
+                <button
+                  key={code}
+                  type="button"
+                  onClick={() => setBulkCode(code)}
+                  title={ABSENCE_LABELS[code]}
+                  className={
+                    "rounded-md border px-2.5 py-1 text-xs font-medium " +
+                    (bulkCode === code
+                      ? "border-warning-700 bg-warning-50 text-warning-700"
+                      : "border-neutral-300 hover:bg-neutral-100")
+                  }
+                >
+                  {code}
+                </button>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {Array.from({ length: daysInMonth(yy, mm) }, (_, i) => i + 1).map(
+                (d) => {
+                  const on = bulkDays.has(d);
+                  const dow = new Date(yy, mm - 1, d).getDay();
+                  return (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => toggleBulkDay(d)}
+                      className={
+                        "h-7 w-7 rounded text-xs " +
+                        (on
+                          ? "bg-warning-500 font-semibold text-white"
+                          : (dow === 0 ? "text-danger-600 " : "text-neutral-700 ") +
+                            "hover:bg-neutral-200")
+                      }
+                    >
+                      {d}
+                    </button>
+                  );
+                }
+              )}
+            </div>
+            <div className="mt-3 flex items-center justify-between">
+              <span className="text-[11px] text-neutral-500">
+                {bulkDays.size} day(s) selected
+              </span>
+              <Button
+                variant="secondary"
+                onClick={applyBulkAbsence}
+                loading={saving}
+                disabled={saving || bulkDays.size === 0}
+              >
+                Apply {bulkCode} to {bulkDays.size} day
+                {bulkDays.size === 1 ? "" : "s"}
+              </Button>
+            </div>
+          </div>
+        )}
 
         <p className="mt-4 mb-2 text-xs font-medium uppercase text-neutral-500">
           Rotation
@@ -1895,12 +2052,15 @@ function CellEditor({
                 </p>
               )}
               {subs.map((s) => (
-                <div
+                <button
                   key={s.employee_id}
-                  className="flex items-center justify-between rounded-lg border border-neutral-200 px-3 py-2 text-sm"
+                  onClick={() => assignSub(s)}
+                  disabled={saving}
+                  title={`Assign ${s.name} to cover this shift`}
+                  className="flex w-full items-center justify-between rounded-lg border border-neutral-200 px-3 py-2 text-left text-sm hover:border-primary-400 hover:bg-primary-50/50 disabled:opacity-50"
                 >
                   <div>
-                    <span className="font-medium">{s.name}</span>
+                    <span className="font-medium text-primary-700">{s.name}</span>
                     {s.on_rest && (
                       <span className="ml-2 rounded bg-success-50 px-1.5 py-0.5 text-[10px] text-success-700">
                         rest day
@@ -1922,13 +2082,12 @@ function CellEditor({
                     </span>
                   </div>
                   <span className="text-[11px] text-neutral-400">
-                    {s.job_title}
+                    {s.job_title} →
                   </span>
-                </div>
+                </button>
               ))}
               <p className="text-[11px] text-neutral-400 pt-1">
-                Suggestions only — assign the chosen substitute manually on their
-                own row.
+                Click a name to assign them as the substitute for this shift.
               </p>
             </div>
           )}
