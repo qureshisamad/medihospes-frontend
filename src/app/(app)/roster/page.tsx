@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import api from "@/lib/api";
 import { holidayName } from "@/lib/holidays";
+import { useI18n } from "@/lib/i18n";
+import { monthNames, weekdayInitials } from "@/lib/dates";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import {
@@ -32,9 +34,6 @@ import {
 } from "@/lib/types";
 
 const ABSENCE_CODES = Object.keys(ABSENCE_LABELS) as AbsenceCode[];
-
-// Weekday initials indexed by JS Date.getDay() (0 = Sunday).
-const WEEKDAY = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
 // How a cell renders in a given "viewing" house, accounting for cross-house
 // loans (objective 3, part 2). A cell's effective house is its per-cell
@@ -87,6 +86,8 @@ function daysInMonth(year: number, month: number) {
 }
 
 export default function RosterPage() {
+  const { t, locale } = useI18n();
+  const WEEKDAY = weekdayInitials(locale);
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -212,7 +213,7 @@ export default function RosterPage() {
         setCells(r.data);
       })
       .catch(() => {
-        if (seq === loadSeq.current) toast.error("Failed to load roster");
+        if (seq === loadSeq.current) toast.error(t("ros.loadFailed"));
       })
       .finally(() => {
         if (seq === loadSeq.current) setLoading(false);
@@ -269,7 +270,7 @@ export default function RosterPage() {
       })
       .catch(() => {
         if (seq === compareSeq.current)
-          toast.error("Failed to load compared houses");
+          toast.error(t("ros.loadCompareFailed"));
       });
   }, [compareSiteIds, year, month, departmentId, jobTitle]);
 
@@ -454,39 +455,34 @@ export default function RosterPage() {
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      toast.error("Export failed");
+      toast.error(t("ros.exportFailed"));
     }
   };
 
-  const months = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December",
-  ];
+  const months = monthNames(locale);
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-900">Monthly Roster</h1>
-          <p className="mt-1 text-neutral-500">
-            Click any cell to assign a shift or absence
-          </p>
+          <h1 className="text-2xl font-bold text-neutral-900">{t("ros.title")}</h1>
+          <p className="mt-1 text-neutral-500">{t("ros.subtitle")}</p>
         </div>
         <div className="flex gap-2">
           <Button onClick={() => setShowAutoFill(true)}>
-            <Repeat size={16} /> Auto-fill from rotation
+            <Repeat size={16} /> {t("ros.autofill")}
           </Button>
           <Button variant="secondary" onClick={() => setShowHistory(true)}>
-            <History size={16} /> History
+            <History size={16} /> {t("ros.history")}
           </Button>
           <Button variant="danger" onClick={() => setShowClear(true)}>
-            <Trash2 size={16} /> Clear month
+            <Trash2 size={16} /> {t("ros.clearMonth")}
           </Button>
           <Button variant="secondary" onClick={() => download("xlsx")}>
-            <Download size={16} /> Excel
+            <Download size={16} /> {t("ros.excel")}
           </Button>
           <Button variant="secondary" onClick={() => download("pdf")}>
-            <Download size={16} /> PDF
+            <Download size={16} /> {t("ros.pdf")}
           </Button>
         </div>
       </div>
@@ -519,7 +515,7 @@ export default function RosterPage() {
             }
             className="h-10 rounded-lg border border-neutral-300 px-3 text-sm"
           >
-            <option value="">All departments</option>
+            <option value="">{t("ros.allDepartments")}</option>
             {departments.map((d) => (
               <option key={d.id} value={d.id}>{d.name}</option>
             ))}
@@ -529,7 +525,7 @@ export default function RosterPage() {
             onChange={(e) => setJobTitle(e.target.value)}
             className="h-10 rounded-lg border border-neutral-300 px-3 text-sm"
           >
-            <option value="">All categories</option>
+            <option value="">{t("ros.allCategories")}</option>
             {jobTitles.map((j) => (
               <option key={j.id} value={j.name}>{j.label}</option>
             ))}
@@ -541,7 +537,7 @@ export default function RosterPage() {
             }
             className="h-10 rounded-lg border border-neutral-300 px-3 text-sm"
           >
-            <option value="">All locations</option>
+            <option value="">{t("ros.allLocations")}</option>
             {sites.map((s) => (
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
@@ -551,14 +547,14 @@ export default function RosterPage() {
               <button
                 type="button"
                 onClick={() => setCompareOpen((o) => !o)}
-                title="Pick one or more houses to show below for coordination"
+                title={t("ros.compareHint")}
                 className="flex h-10 items-center gap-1 rounded-lg border border-dashed border-neutral-400 px-3 text-sm"
               >
                 {compareSiteIds.length === 0
-                  ? "+ Compare with…"
-                  : `Comparing ${compareSiteIds.length} house${
-                      compareSiteIds.length > 1 ? "s" : ""
-                    }`}
+                  ? t("ros.compareWith")
+                  : compareSiteIds.length === 1
+                  ? t("ros.comparingOne")
+                  : t("ros.comparingMany", { n: compareSiteIds.length })}
                 <ChevronDown size={14} />
               </button>
               {compareOpen && (
@@ -601,7 +597,7 @@ export default function RosterPage() {
                         onClick={() => setCompareSiteIds([])}
                         className="mt-1 w-full rounded px-2 py-1.5 text-left text-xs text-neutral-500 hover:bg-neutral-50"
                       >
-                        Clear all
+                        {t("ros.clearAll")}
                       </button>
                     )}
                   </div>
@@ -619,13 +615,13 @@ export default function RosterPage() {
                 key={m}
                 onClick={() => setViewMode(m)}
                 className={
-                  "rounded-md px-3 py-1.5 text-sm font-medium capitalize " +
+                  "rounded-md px-3 py-1.5 text-sm font-medium " +
                   (viewMode === m
                     ? "bg-primary-600 text-white"
                     : "text-neutral-600 hover:bg-neutral-100")
                 }
               >
-                {m === "week" ? "Weekly" : "Monthly"}
+                {m === "week" ? t("ros.weekly") : t("ros.monthly")}
               </button>
             ))}
           </div>
@@ -638,10 +634,10 @@ export default function RosterPage() {
                 onClick={() => setWeekIndex((i) => Math.max(0, i - 1))}
                 disabled={weekIndex === 0}
               >
-                <ChevronLeft size={16} /> Prev
+                <ChevronLeft size={16} /> {t("ros.prev")}
               </Button>
               <span className="min-w-[150px] text-center text-sm font-medium text-neutral-700">
-                Week {weekIndex + 1} of {weeks.length}
+                {t("ros.weekOf", { n: weekIndex + 1, total: weeks.length })}
                 {visibleDays.length > 0 && (
                   <span className="block text-[11px] font-normal text-neutral-400">
                     {months[month - 1].slice(0, 3)} {visibleDays[0]}–
@@ -656,7 +652,7 @@ export default function RosterPage() {
                 }
                 disabled={weekIndex >= weeks.length - 1}
               >
-                Next <ChevronRight size={16} />
+                {t("ros.next")} <ChevronRight size={16} />
               </Button>
             </div>
           )}
@@ -668,7 +664,7 @@ export default function RosterPage() {
       ) : employees.length === 0 ? (
         <Card>
           <p className="text-center text-neutral-500 py-6">
-            No employees to schedule. Add employees first.
+            {t("ros.noEmployees")}
           </p>
         </Card>
       ) : (
@@ -677,12 +673,12 @@ export default function RosterPage() {
             <thead>
               <tr>
                 <th className="sticky left-0 z-10 bg-white border-b border-neutral-200 px-2 py-2 text-left font-semibold min-w-[160px]">
-                  Employee
+                  {t("ros.employee")}
                 </th>
                 {visibleDays.map((d) => {
                   const meta = dayMeta.get(d)!;
                   const tip =
-                    meta.holiday ?? (meta.dow === 0 ? "Sunday" : undefined);
+                    meta.holiday ?? (meta.dow === 0 ? t("tip.sunday") : undefined);
                   return (
                     <th
                       key={d}
@@ -724,9 +720,9 @@ export default function RosterPage() {
                     {primarySite != null && emp.site_id !== primarySite && (
                       <span
                         className="ml-1 rounded bg-info-50 px-1 py-0.5 text-[9px] font-semibold text-info-500"
-                        title={`On loan from ${
-                          siteName.get(emp.site_id ?? -1) ?? "another house"
-                        }`}
+                        title={t("tip.onLoanFrom", {
+                          house: siteName.get(emp.site_id ?? -1) ?? "—",
+                        })}
                       >
                         ⇄ {siteName.get(emp.site_id ?? -1) ?? "loan"}
                       </span>
@@ -758,25 +754,23 @@ export default function RosterPage() {
                     const title =
                       [
                         isDuplicate
-                          ? `Duplicate: ${shiftCode(
-                              cell!.shift_type_id!
-                            )} is over its required count this day`
+                          ? t("tip.duplicate", {
+                              code: shiftCode(cell!.shift_type_id!),
+                            })
                           : null,
                         isOnLoan
-                          ? `On loan from ${
-                              siteName.get(emp.site_id ?? -1) ?? "another house"
-                            }`
+                          ? t("tip.onLoanFrom", {
+                              house: siteName.get(emp.site_id ?? -1) ?? "—",
+                            })
                           : null,
                         isB2Out
-                          ? `Transferred to ${
-                              siteName.get(cell!.site_id!) ?? "another house"
-                            } (B2)`
+                          ? t("tip.transferredTo", {
+                              house: siteName.get(cell!.site_id!) ?? "—",
+                            })
                           : null,
-                        isPending
-                          ? "Pending — benched (not in the rotation today)"
-                          : null,
-                        cell?.substitutes_for_id ? "Substitution" : null,
-                        hasNote ? `Note: ${cell!.notes}` : null,
+                        isPending ? t("tip.pending") : null,
+                        cell?.substitutes_for_id ? t("tip.substitution") : null,
+                        hasNote ? t("tip.note", { note: cell!.notes! }) : null,
                       ]
                         .filter(Boolean)
                         .join(" · ") || undefined;
@@ -822,7 +816,7 @@ export default function RosterPage() {
               <tfoot>
                 <tr>
                   <td className="sticky left-0 z-10 bg-white border-t-2 border-neutral-300 px-2 py-1.5 text-[11px] font-semibold text-neutral-600 whitespace-nowrap">
-                    Day coverage
+                    {t("ros.dayCoverage")}
                   </td>
                   {visibleDays.map((d) => {
                     const cov = coverageByDay.get(d);
@@ -845,11 +839,13 @@ export default function RosterPage() {
                         : "";
                     const title =
                       st === "ok"
-                        ? "Coverage complete"
+                        ? t("cov.complete")
                         : st === "under"
-                        ? `Incomplete — short: ${cov!.underCodes.join(", ")}`
+                        ? t("cov.shortList", {
+                            codes: cov!.underCodes.join(", "),
+                          })
                         : st === "over"
-                        ? `Excessive — too many: ${cov!.overCodes.join(", ")}`
+                        ? t("cov.overList", { codes: cov!.overCodes.join(", ") })
                         : "";
                     return (
                       <td
@@ -872,7 +868,7 @@ export default function RosterPage() {
             <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-neutral-500">
               <span className="flex items-center gap-1 font-medium text-danger-700">
                 <span className="inline-block h-3 w-3 rounded bg-danger-700" />
-                Festività {months[month - 1]}:
+                {t("ros.festivita", { month: months[month - 1] })}
               </span>
               {monthHolidays.map((h) => (
                 <span key={h.day} className="whitespace-nowrap">
@@ -885,15 +881,16 @@ export default function RosterPage() {
           {hasCoverage && (
             <div className="mt-2 flex flex-wrap items-center gap-4 text-[11px] text-neutral-500">
               <span className="flex items-center gap-1">
-                <span className="inline-block h-3 w-3 rounded bg-success-500" /> OK
+                <span className="inline-block h-3 w-3 rounded bg-success-500" />{" "}
+                {t("cov.ok")}
               </span>
               <span className="flex items-center gap-1">
                 <span className="inline-block h-3 w-3 rounded bg-warning-500" />{" "}
-                Incomplete (below required)
+                {t("cov.under")}
               </span>
               <span className="flex items-center gap-1">
                 <span className="inline-block h-3 w-3 rounded bg-danger-500" />{" "}
-                Excessive (above required)
+                {t("cov.over")}
               </span>
             </div>
           )}
@@ -1068,6 +1065,8 @@ function CompareGrid({
   onBring: (emp: Employee) => void;
   onClose: () => void;
 }) {
+  const { t, locale } = useI18n();
+  const WEEKDAY = weekdayInitials(locale);
   const shiftCode = (id: number | null) =>
     shiftTypes.find((s) => s.id === id)?.code ?? "?";
 
@@ -1084,35 +1083,35 @@ function CompareGrid({
     <Card padding="sm" className="overflow-x-auto border-dashed">
       <div className="mb-2 flex items-center gap-2">
         <span className="rounded bg-neutral-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-neutral-500">
-          Detached
+          {t("ros.detached")}
         </span>
         <span className="text-sm font-medium text-neutral-800">{houseName}</span>
         <span className="text-[11px] text-neutral-400">
-          · click a name to bring them to {primaryHouseName}
+          · {t("ros.clickToBring", { house: primaryHouseName })}
         </span>
         <button
           onClick={onClose}
           className="ml-auto text-neutral-400 hover:text-neutral-700"
-          aria-label="Hide compared house"
+          aria-label={t("common.close")}
         >
           <X size={16} />
         </button>
       </div>
       {employees.length === 0 ? (
         <p className="py-4 text-center text-sm text-neutral-500">
-          No employees in {houseName} for this filter.
+          {t("ros.noneInHouse", { house: houseName })}
         </p>
       ) : (
         <table className="border-collapse text-xs">
           <thead>
             <tr>
               <th className="sticky left-0 z-10 bg-white border-b border-neutral-200 px-2 py-2 text-left font-semibold min-w-[160px]">
-                Employee
+                {t("ros.employee")}
               </th>
               {visibleDays.map((d) => {
                 const meta = dayMeta.get(d)!;
                 const tip =
-                  meta.holiday ?? (meta.dow === 0 ? "Sunday" : undefined);
+                  meta.holiday ?? (meta.dow === 0 ? t("tip.sunday") : undefined);
                 return (
                   <th
                     key={d}
@@ -1153,7 +1152,10 @@ function CompareGrid({
                   <button
                     onClick={() => onBring(emp)}
                     className="text-left font-medium text-neutral-900 hover:text-primary-600 hover:underline"
-                    title={`Bring ${emp.first_name} ${emp.last_name} to ${primaryHouseName} for selected days`}
+                    title={t("ros.bringTitle", {
+                      name: `${emp.first_name} ${emp.last_name}`,
+                      house: primaryHouseName,
+                    })}
                   >
                     {emp.last_name} {emp.first_name}
                   </button>
@@ -1182,13 +1184,13 @@ function CompareGrid({
                       key={d}
                       title={
                         isB2Out
-                          ? `Transferred to ${
-                              siteName.get(cell!.site_id!) ?? "another house"
-                            } (B2)`
+                          ? t("tip.transferredTo", {
+                              house: siteName.get(cell!.site_id!) ?? "—",
+                            })
                           : isPending
-                          ? "Pending — benched (not in the rotation today)"
+                          ? t("tip.pending")
                           : hasNote
-                          ? `Note: ${cell!.notes}`
+                          ? t("tip.note", { note: cell!.notes! })
                           : undefined
                       }
                       className={
@@ -1264,6 +1266,8 @@ function BringDialog({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const { t, locale } = useI18n();
+  const WEEKDAY = weekdayInitials(locale);
   const [picked, setPicked] = useState<Record<number, number>>({});
   const [saving, setSaving] = useState(false);
 
@@ -1352,13 +1356,15 @@ function BringDialog({
         });
       }
       toast.success(
-        `Brought ${operator.first_name} ${operator.last_name} to ${targetSiteName} for ${pickedDays.length} day(s).`
+        t("bring.done", {
+          name: `${operator.first_name} ${operator.last_name}`,
+          target: targetSiteName,
+          n: pickedDays.length,
+        })
       );
       onDone();
     } catch (e: any) {
-      toast.error(
-        e.response?.data?.detail?.toString() || "Could not bring operator"
-      );
+      toast.error(e.response?.data?.detail?.toString() || t("bring.failed"));
       setSaving(false);
     }
   };
@@ -1369,10 +1375,16 @@ function BringDialog({
         <div className="flex items-start justify-between">
           <div>
             <h3 className="text-lg font-semibold text-neutral-900">
-              Bring {operator.last_name} {operator.first_name}
+              {t("bring.title", {
+                last: operator.last_name,
+                first: operator.first_name,
+              })}
             </h3>
             <p className="text-sm text-neutral-500">
-              from {homeSiteName} → <b>{targetSiteName}</b>, for the days you pick
+              {t("bring.subtitle", {
+                home: homeSiteName,
+                target: targetSiteName,
+              })}
             </p>
           </div>
           <button
@@ -1384,7 +1396,7 @@ function BringDialog({
         </div>
 
         <p className="mt-4 mb-2 text-xs font-medium uppercase text-neutral-500">
-          Days &amp; shift
+          {t("bring.daysShift")}
         </p>
         <div className="space-y-1">
           {visibleDays.map((d) => {
@@ -1437,11 +1449,11 @@ function BringDialog({
                     </select>
                     {chosenOverCap ? (
                       <span className="text-[11px] font-medium text-warning-700">
-                        ⚠ already full
+                        {t("bring.alreadyFull")}
                       </span>
                     ) : req.has(chosen) ? (
                       <span className="text-[11px] text-success-700">
-                        fills a gap
+                        {t("bring.fillsGap")}
                       </span>
                     ) : null}
                   </>
@@ -1450,8 +1462,8 @@ function BringDialog({
                     {req.size === 0
                       ? ""
                       : isFull
-                      ? "fully staffed"
-                      : `short: ${shiftCode(short)}`}
+                      ? t("bring.fullyStaffed")
+                      : t("bring.short", { code: shiftCode(short) })}
                   </span>
                 )}
               </div>
@@ -1460,23 +1472,23 @@ function BringDialog({
         </div>
 
         <div className="mt-4 rounded-lg bg-neutral-50 p-3 text-xs text-neutral-500">
-          On the picked days, {operator.first_name} shows as{" "}
-          <b>on loan</b> in {targetSiteName} and <b>B2</b> (transferred) in{" "}
-          {homeSiteName}. Their other days stay unchanged — clear a cell later to
-          undo.
+          {t("bring.footer", {
+            name: operator.first_name,
+            target: targetSiteName,
+            home: homeSiteName,
+          })}
         </div>
 
         <div className="mt-5 flex justify-between">
           <Button variant="ghost" onClick={onClose}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button
             onClick={confirm}
             loading={saving}
             disabled={pickedDays.length === 0 || saving}
           >
-            Bring for {pickedDays.length} day
-            {pickedDays.length === 1 ? "" : "s"}
+            {t("bring.confirm", { n: pickedDays.length })}
           </Button>
         </div>
       </Card>
@@ -1509,6 +1521,7 @@ function CellEditor({
   onReload: () => void;
   onDone: () => void;
 }) {
+  const { t } = useI18n();
   // House this cell should belong to: keep an existing override, otherwise if
   // we're editing an on-loan operator in a house that isn't theirs, keep them
   // in this (receiving) house rather than silently sending them home.
@@ -1566,14 +1579,14 @@ function CellEditor({
         notes: note.trim() || null, // carry the cell's note through shift/absence edits
         ...payload,
       });
-      toast.success("Saved");
+      toast.success(t("cell.saved"));
       setSavedOnce(true);
       const isAbsence = !!payload.absence_code;
       setSavedKind(isAbsence ? "absence" : "shift");
       if (isAbsence) loadSubs(); // a leave needs cover — surface substitutes
       onReload(); // refresh grid behind; keep editor open for propagation
     } catch (e: any) {
-      toast.error(e.response?.data?.detail?.toString() || "Save failed");
+      toast.error(e.response?.data?.detail?.toString() || t("cell.saveFailed"));
     } finally {
       setSaving(false);
     }
@@ -1587,7 +1600,7 @@ function CellEditor({
     )?.required_count;
     const holders = sameDayShiftHolders(shiftId);
     if (req != null && holders.length >= req) {
-      const code = shiftTypes.find((s) => s.id === shiftId)?.code ?? "This shift";
+      const code = shiftTypes.find((s) => s.id === shiftId)?.code ?? "?";
       setOverWarn({
         shiftId,
         code,
@@ -1611,11 +1624,11 @@ function CellEditor({
         employee_b_id: employee.id,
         work_date: dateStr,
       });
-      toast.success(`Swapped with ${overWarn.holder.name}.`);
+      toast.success(t("cell.swapped", { name: overWarn.holder.name }));
       setOverWarn(null);
       onDone();
     } catch (e: any) {
-      toast.error(e.response?.data?.detail?.toString() || "Swap failed");
+      toast.error(e.response?.data?.detail?.toString() || t("cell.swapFailed"));
       setSaving(false);
     }
   };
@@ -1630,18 +1643,16 @@ function CellEditor({
         pattern_id: pattern.id,
       });
       const r = res.data as AutoFillResult;
-      toast.success(`Rotation regenerated — ${r.filled_cells} cells.`);
+      toast.success(t("cell.rotationRegen", { n: r.filled_cells }));
       for (const a of r.alerts ?? []) {
         toast(a, { icon: "⚠️", duration: 7000 });
       }
       if (r.unmet?.length) {
-        toast(`${r.unmet.length} slot(s) left unfilled — see Auto-fill report.`, {
-          icon: "⚠️",
-        });
+        toast(t("cell.unmetToast", { n: r.unmet.length }), { icon: "⚠️" });
       }
       onDone();
     } catch (e: any) {
-      toast.error(e.response?.data?.detail?.toString() || "Update failed");
+      toast.error(e.response?.data?.detail?.toString() || t("cell.updateFailed"));
       setSaving(false);
     }
   };
@@ -1655,10 +1666,10 @@ function CellEditor({
         work_date: dateStr,
         pattern_id: pattern.id,
       });
-      toast.success(`Updated ${res.data.updated} of this person's later day(s).`);
+      toast.success(t("cell.cascadeDone", { n: res.data.updated }));
       onDone();
     } catch (e: any) {
-      toast.error(e.response?.data?.detail?.toString() || "Update failed");
+      toast.error(e.response?.data?.detail?.toString() || t("cell.updateFailed"));
       setSaving(false);
     }
   };
@@ -1686,10 +1697,10 @@ function CellEditor({
         substitutes_for_id: existing?.substitutes_for_id ?? null,
         notes: text || null,
       });
-      toast.success(text ? "Note saved" : "Note removed");
+      toast.success(text ? t("cell.noteSaved") : t("cell.noteRemoved"));
       onDone();
     } catch (e: any) {
-      toast.error(e.response?.data?.detail?.toString() || "Save failed");
+      toast.error(e.response?.data?.detail?.toString() || t("cell.saveFailed"));
       setSaving(false);
     }
   };
@@ -1700,10 +1711,10 @@ function CellEditor({
       await api.delete("/roster/cell", {
         params: { employee_id: employee.id, work_date: dateStr },
       });
-      toast.success("Cleared");
+      toast.success(t("cell.cleared"));
       onDone();
     } catch {
-      toast.error("Failed");
+      toast.error(t("cell.failed"));
       setSaving(false);
     }
   };
@@ -1732,12 +1743,15 @@ function CellEditor({
       });
       toast.success(
         canSwap
-          ? `${dayPendingPerson!.name} takes the shift; ${employee.first_name} is now pending.`
-          : `${employee.first_name} set to pending.`
+          ? t("cell.pendingSwapped", {
+              holder: dayPendingPerson!.name,
+              emp: employee.first_name,
+            })
+          : t("cell.pendingSet", { name: employee.first_name })
       );
       onDone();
     } catch (e: any) {
-      toast.error(e.response?.data?.detail?.toString() || "Failed");
+      toast.error(e.response?.data?.detail?.toString() || t("cell.failed"));
       setSaving(false);
     }
   };
@@ -1755,7 +1769,7 @@ function CellEditor({
       });
       setSubs(res.data);
     } catch {
-      toast.error("Could not load substitutes");
+      toast.error(t("cell.subsLoadFailed"));
     }
   };
 
@@ -1763,10 +1777,10 @@ function CellEditor({
   // from another house is placed on loan (site override) to the gap's house.
   const assignSub = async (s: SubstituteCandidate) => {
     if (gapShiftId == null) {
-      toast.error("No shift to cover here — set the shift first.");
+      toast.error(t("cell.noShiftToCover"));
       return;
     }
-    const code = shiftTypes.find((st) => st.id === gapShiftId)?.code ?? "the shift";
+    const code = shiftTypes.find((st) => st.id === gapShiftId)?.code ?? "?";
     setSaving(true);
     try {
       const gapHouse = primarySite ?? employee.site_id ?? null;
@@ -1777,11 +1791,11 @@ function CellEditor({
         substitutes_for_id: employee.id,
         ...(s.is_cross_site && gapHouse != null ? { site_id: gapHouse } : {}),
       });
-      toast.success(`${s.name} assigned to cover ${code}.`);
+      toast.success(t("cell.assignedToCover", { name: s.name, code }));
       onDone();
     } catch (e: any) {
       toast.error(
-        e.response?.data?.detail?.toString() || "Could not assign substitute"
+        e.response?.data?.detail?.toString() || t("cell.assignSubFailed")
       );
       setSaving(false);
     }
@@ -1812,11 +1826,11 @@ function CellEditor({
           absence_code: bulkCode,
         });
       }
-      toast.success(`${bulkCode} set for ${daysList.length} day(s).`);
+      toast.success(t("cell.absenceApplied", { code: bulkCode, n: daysList.length }));
       onDone();
     } catch (e: any) {
       toast.error(
-        e.response?.data?.detail?.toString() || "Could not apply absence"
+        e.response?.data?.detail?.toString() || t("cell.absenceFailed")
       );
       setSaving(false);
     }
@@ -1838,7 +1852,7 @@ function CellEditor({
         </div>
 
         <p className="mt-4 mb-2 text-xs font-medium uppercase text-neutral-500">
-          Shift
+          {t("cell.shift")}
         </p>
         <div className="flex flex-wrap gap-2">
           {shiftTypes.map((s) => (
@@ -1862,28 +1876,33 @@ function CellEditor({
         {overWarn && (
           <div className="mt-3 rounded-lg border border-warning-300 bg-warning-50 p-3 text-sm">
             <p className="font-medium text-warning-800">
-              ⚠️ {overWarn.code} is already held by {overWarn.holder.name} on{" "}
-              {dateStr} (coverage {overWarn.req}).
+              {t("cell.overWarnTitle", {
+                code: overWarn.code,
+                name: overWarn.holder.name,
+                date: dateStr,
+                req: overWarn.req,
+              })}
             </p>
             <p className="mt-1 text-xs text-warning-700">
-              Swapping gives {overWarn.code} to {employee.first_name}{" "}
-              {employee.last_name}, and {overWarn.holder.name} takes{" "}
-              {employee.first_name}&apos;s current shift — so it&apos;s never
-              assigned to both.
+              {t("cell.overWarnBody", {
+                code: overWarn.code,
+                emp: `${employee.first_name} ${employee.last_name}`,
+                holder: overWarn.holder.name,
+              })}
             </p>
             <div className="mt-2 flex gap-2">
               <Button variant="primary" onClick={doSwap} loading={saving}>
-                Swap with {overWarn.holder.name}
+                {t("cell.swapWith", { name: overWarn.holder.name })}
               </Button>
               <Button variant="ghost" onClick={() => setOverWarn(null)}>
-                Cancel
+                {t("common.cancel")}
               </Button>
             </div>
           </div>
         )}
 
         <p className="mt-4 mb-2 text-xs font-medium uppercase text-neutral-500">
-          Absence
+          {t("cell.absence")}
         </p>
         <div className="flex flex-wrap items-center gap-2">
           {ABSENCE_CODES.map((code) => (
@@ -1897,7 +1916,7 @@ function CellEditor({
                   ? "border-warning-700 bg-warning-50 text-warning-700"
                   : "border-neutral-300 hover:bg-neutral-50")
               }
-              title={ABSENCE_LABELS[code]}
+              title={t(`abs.${code}`)}
             >
               {code}
             </button>
@@ -1907,15 +1926,14 @@ function CellEditor({
             onClick={() => setBulkOpen((o) => !o)}
             className="rounded-lg border border-dashed border-neutral-400 px-3 py-1.5 text-sm font-medium text-neutral-600 hover:bg-neutral-50"
           >
-            Multiple days…
+            {t("cell.multipleDays")}
           </button>
         </div>
 
         {bulkOpen && (
           <div className="mt-2 rounded-lg border border-neutral-200 bg-neutral-50 p-3">
             <p className="mb-2 text-xs text-neutral-600">
-              Apply an absence across several days (e.g. Ferie). Pick the code,
-              then tap the days.
+              {t("cell.bulkHint")}
             </p>
             <div className="mb-2 flex flex-wrap gap-1.5">
               {ABSENCE_CODES.map((code) => (
@@ -1923,7 +1941,7 @@ function CellEditor({
                   key={code}
                   type="button"
                   onClick={() => setBulkCode(code)}
-                  title={ABSENCE_LABELS[code]}
+                  title={t(`abs.${code}`)}
                   className={
                     "rounded-md border px-2.5 py-1 text-xs font-medium " +
                     (bulkCode === code
@@ -1961,7 +1979,7 @@ function CellEditor({
             </div>
             <div className="mt-3 flex items-center justify-between">
               <span className="text-[11px] text-neutral-500">
-                {bulkDays.size} day(s) selected
+                {t("cell.daysSelected", { n: bulkDays.size })}
               </span>
               <Button
                 variant="secondary"
@@ -1969,15 +1987,14 @@ function CellEditor({
                 loading={saving}
                 disabled={saving || bulkDays.size === 0}
               >
-                Apply {bulkCode} to {bulkDays.size} day
-                {bulkDays.size === 1 ? "" : "s"}
+                {t("cell.applyTo", { code: bulkCode, n: bulkDays.size })}
               </Button>
             </div>
           </div>
         )}
 
         <p className="mt-4 mb-2 text-xs font-medium uppercase text-neutral-500">
-          Rotation
+          {t("cell.rotation")}
         </p>
         <div className="flex flex-wrap items-center gap-2">
           {existing?.is_pending ? (
@@ -1986,16 +2003,16 @@ function CellEditor({
               onClick={clear}
               className="rounded-lg border border-neutral-400 bg-neutral-100 px-3 py-1.5 text-sm font-medium text-neutral-600 italic"
             >
-              Pending — click to un-bench
+              {t("cell.pendingUnbench")}
             </button>
           ) : (
             <button
               disabled={saving}
               onClick={markPending}
               className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium hover:bg-neutral-50"
-              title="Bench this person (not in the rotation this day)"
+              title={t("cell.pendingBenchHint")}
             >
-              Mark pending
+              {t("cell.markPending")}
             </button>
           )}
           {!existing?.is_pending &&
@@ -2003,13 +2020,13 @@ function CellEditor({
             existing.site_id == null &&
             dayPendingPerson && (
               <span className="text-[11px] text-neutral-400">
-                swaps the shift to {dayPendingPerson.name}
+                {t("cell.swapsTo", { name: dayPendingPerson.name })}
               </span>
             )}
         </div>
 
         <p className="mt-4 mb-2 text-xs font-medium uppercase text-neutral-500">
-          Comment / note
+          {t("cell.commentNote")}
         </p>
         <textarea
           value={note}
@@ -2017,7 +2034,7 @@ function CellEditor({
           rows={2}
           maxLength={300}
           disabled={saving}
-          placeholder="Add a note or comment for this cell…"
+          placeholder={t("cell.notePlaceholder")}
           className="w-full resize-none rounded-lg border border-neutral-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
         />
         <div className="mt-1 flex items-center justify-between">
@@ -2032,7 +2049,7 @@ function CellEditor({
               saving || note.trim() === (existing?.notes ?? "").trim()
             }
           >
-            {note.trim() ? "Save note" : "Remove note"}
+            {note.trim() ? t("cell.saveNote") : t("cell.removeNote")}
           </Button>
         </div>
 
@@ -2042,13 +2059,13 @@ function CellEditor({
             onClick={loadSubs}
             className="text-sm font-medium text-primary-600 hover:underline"
           >
-            Find available substitutes ({employee.job_title})
+            {t("cell.findSubs", { role: employee.job_title })}
           </button>
           {subs && (
             <div className="mt-3 space-y-2">
               {subs.length === 0 && (
                 <p className="text-sm text-neutral-500">
-                  No eligible, available substitutes for this date.
+                  {t("cell.noSubs")}
                 </p>
               )}
               {subs.map((s) => (
@@ -2063,22 +2080,22 @@ function CellEditor({
                     <span className="font-medium text-primary-700">{s.name}</span>
                     {s.on_rest && (
                       <span className="ml-2 rounded bg-success-50 px-1.5 py-0.5 text-[10px] text-success-700">
-                        rest day
+                        {t("cell.restDay")}
                       </span>
                     )}
                     {s.is_cross_role && (
                       <span className="ml-2 text-[10px] text-info-500">
-                        cross-role
+                        {t("cell.crossRole")}
                       </span>
                     )}
                     {s.is_cross_site && (
                       <span className="ml-2 rounded bg-warning-50 px-1.5 py-0.5 text-[10px] text-warning-700">
-                        other house
+                        {t("cell.otherHouse")}
                       </span>
                     )}
                     <span className="block text-[11px] text-neutral-400">
-                      {s.remaining_hours}h left
-                      {s.would_cause_overtime ? " · would cause overtime" : ""}
+                      {t("cell.hoursLeft", { h: s.remaining_hours })}
+                      {s.would_cause_overtime ? t("cell.wouldOvertime") : ""}
                     </span>
                   </div>
                   <span className="text-[11px] text-neutral-400">
@@ -2087,7 +2104,7 @@ function CellEditor({
                 </button>
               ))}
               <p className="text-[11px] text-neutral-400 pt-1">
-                Click a name to assign them as the substitute for this shift.
+                {t("cell.clickToAssignSub")}
               </p>
             </div>
           )}
@@ -2096,21 +2113,21 @@ function CellEditor({
         {savedOnce && savedKind === "absence" && (
           <div className="mt-5 rounded-lg border border-warning-300 bg-warning-50/50 p-3">
             <p className="text-sm font-medium text-neutral-800">
-              {employee.first_name} is on leave
-              {gapShiftId
-                ? ` — their ${
-                    shiftTypes.find((s) => s.id === gapShiftId)?.code ?? ""
-                  } shift needs cover.`
-                : "."}
+              {t("cell.onLeaveTitle", {
+                name: employee.first_name,
+                shift: gapShiftId
+                  ? t("cell.onLeaveShift", {
+                      code: shiftTypes.find((s) => s.id === gapShiftId)?.code ?? "",
+                    })
+                  : "",
+              })}
             </p>
             <p className="mt-1 text-xs text-neutral-500">
-              Available substitutes (same house first) are listed above. Pick one
-              and assign them on their own row — the software never assigns cover
-              on its own.
+              {t("cell.onLeaveBody")}
             </p>
             <div className="mt-2">
               <Button variant="secondary" onClick={loadSubs}>
-                Find cover for this leave
+                {t("cell.findCover")}
               </Button>
             </div>
           </div>
@@ -2119,10 +2136,10 @@ function CellEditor({
         {savedOnce && savedKind === "shift" && pattern && (
           <div className="mt-5 rounded-lg border border-primary-200 bg-primary-50/40 p-3">
             <p className="text-sm font-medium text-neutral-800">
-              Apply this change to the rest of the schedule?
+              {t("cell.applyRest")}
             </p>
             <p className="mb-3 text-xs text-neutral-500">
-              Your manual change is locked and will be kept either way.
+              {t("cell.manualLocked")}
             </p>
             <div className="flex flex-col gap-2">
               <Button
@@ -2130,14 +2147,14 @@ function CellEditor({
                 onClick={cascadePerson}
                 loading={saving}
               >
-                Update {employee.first_name}&apos;s later days only
+                {t("cell.cascadeBtn", { name: employee.first_name })}
               </Button>
               <Button
                 variant="secondary"
                 onClick={autoUpdateMonth}
                 loading={saving}
               >
-                Regenerate the whole month&apos;s rotation (keeps edits)
+                {t("cell.regenBtn")}
               </Button>
             </div>
           </div>
@@ -2145,11 +2162,11 @@ function CellEditor({
 
         <div className="mt-5 flex justify-between">
           <Button variant="ghost" onClick={onClose}>
-            {savedOnce ? "Done — keep rest unchanged" : "Close"}
+            {savedOnce ? t("cell.doneKeep") : t("common.close")}
           </Button>
           {existing && !savedOnce && (
             <Button variant="danger" onClick={clear} loading={saving}>
-              Clear cell
+              {t("cell.clearCell")}
             </Button>
           )}
         </div>
@@ -2181,6 +2198,7 @@ function AutoFillModal({
   onClose: () => void;
   onReload: () => void;
 }) {
+  const { t } = useI18n();
   const [running, setRunning] = useState(false);
   const [autoStagger, setAutoStagger] = useState(true);
   const [result, setResult] = useState<AutoFillResult | null>(null);
@@ -2252,15 +2270,18 @@ function AutoFillModal({
       const r = res.data as AutoFillResult;
       setResult(r);
       if (r.employees_filled === 0) {
-        toast.error("No employees were scheduled for this category.");
+        toast.error(t("af.noneScheduled"));
       } else {
         toast.success(
-          `Filled ${r.filled_cells} cells for ${r.employees_filled} employee(s).`
+          t("af.filledCells", {
+            cells: r.filled_cells,
+            emps: r.employees_filled,
+          })
         );
       }
       onReload(); // refresh the grid behind the modal
     } catch (e: any) {
-      toast.error(e.response?.data?.detail?.toString() || "Auto-fill failed");
+      toast.error(e.response?.data?.detail?.toString() || t("common.failed"));
     } finally {
       setRunning(false);
     }
@@ -2285,12 +2306,15 @@ function AutoFillModal({
           <div className="flex items-start justify-between">
             <div>
               <h3 className="text-lg font-semibold text-neutral-900">
-                Who sits out?
+                {t("af.whoSitsOut")}
               </h3>
               <p className="mt-1 text-sm text-neutral-500">
-                {pattern.name} has <b>{n}</b> staff but the rotation needs{" "}
-                <b>{total}</b>. Mark the surplus <b>{surplus}</b> as pending —
-                they&apos;re benched (0h) and the rest cover every shift.
+                {t("af.surplusDesc", {
+                  pattern: pattern.name,
+                  n,
+                  total,
+                  surplus,
+                })}
               </p>
             </div>
             <button
@@ -2322,7 +2346,7 @@ function AutoFillModal({
                   </span>
                   {on && (
                     <span className="ml-auto text-[11px] text-neutral-400">
-                      pending
+                      {t("af.pending")}
                     </span>
                   )}
                 </label>
@@ -2336,24 +2360,29 @@ function AutoFillModal({
               (balanced ? "text-success-700" : "text-warning-700")
             }
           >
-            {selected.size} selected ·{" "}
+            {t("af.selectedCount", { n: selected.size })}
             {balanced
-              ? `${total} will work — coverage balances`
-              : `pick ${surplus} to balance (${
-                  n - selected.size
-                } would work vs ${total} needed)`}
+              ? t("af.balanced", { total })
+              : t("af.pickToBalance", {
+                  surplus,
+                  working: n - selected.size,
+                  total,
+                })}
           </p>
 
           <div className="mt-5 flex justify-between">
             <Button variant="ghost" onClick={() => setPendingPicker(null)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               onClick={() => doRun(pattern, [...selected])}
               loading={running}
               disabled={running}
             >
-              Fill — {n - selected.size} working, {selected.size} pending
+              {t("af.fillWithPending", {
+                working: n - selected.size,
+                pending: selected.size,
+              })}
             </Button>
           </div>
         </Card>
@@ -2367,15 +2396,9 @@ function AutoFillModal({
         <div className="flex items-start justify-between">
           <div>
             <h3 className="text-lg font-semibold text-neutral-900">
-              Auto-fill {monthLabel} {year}
+              {t("af.title", { month: monthLabel, year })}
             </h3>
-            <p className="mt-1 text-sm text-neutral-500">
-              Fills the whole month by rotating each employee through the
-              category&apos;s shift order (e.g. M → P/N → S → R), keeping daily
-              coverage balanced. Absences you&apos;ve entered are kept and every
-              cell stays editable. You&apos;ll be alerted if the staff count
-              doesn&apos;t match the coverage total.
-            </p>
+            <p className="mt-1 text-sm text-neutral-500">{t("af.desc")}</p>
           </div>
           <button
             onClick={onClose}
@@ -2395,11 +2418,10 @@ function AutoFillModal({
             />
             <span>
               <span className="font-medium text-neutral-800">
-                Stagger starts automatically
+                {t("af.staggerTitle")}
               </span>
               <span className="block text-xs text-neutral-500">
-                Only used for cycle rotations that have no coverage defined.
-                Gives each employee a different starting shift.
+                {t("af.staggerDesc")}
               </span>
             </span>
           </label>
@@ -2407,10 +2429,7 @@ function AutoFillModal({
 
         <div className="mt-4 space-y-3">
           {ordered.length === 0 && (
-            <p className="text-sm text-neutral-500">
-              No rotation libraries defined yet. Create one under{" "}
-              <b>Rotations</b>.
-            </p>
+            <p className="text-sm text-neutral-500">{t("af.noLibs")}</p>
           )}
           {ordered.map((p) => {
             const coverageMode = p.coverage.length > 0;
@@ -2425,7 +2444,8 @@ function AutoFillModal({
                     <div className="text-xs text-neutral-500">
                       {labelOf(p.job_title)}
                       {p.site_name && ` · ${p.site_name}`}
-                      {coverageMode && ` · min rest ${p.min_rest_hours}h`}
+                      {coverageMode &&
+                        ` · ${t("af.minRest", { h: p.min_rest_hours })}`}
                     </div>
                   </div>
                   <Button
@@ -2433,7 +2453,7 @@ function AutoFillModal({
                     loading={running}
                     disabled={running}
                   >
-                    Fill month
+                    {t("af.fillMonth")}
                   </Button>
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-1">
@@ -2448,7 +2468,7 @@ function AutoFillModal({
                         </span>
                       ))}
                       <span className="ml-1 text-[11px] text-neutral-400">
-                        (daily coverage)
+                        {t("af.dailyCoverage")}
                       </span>
                     </>
                   ) : (
@@ -2462,7 +2482,7 @@ function AutoFillModal({
                         </span>
                       ))}
                       <span className="ml-1 text-[11px] text-neutral-400">
-                        ({p.shift_type_ids.length}-day cycle)
+                        {t("af.dayCycle", { n: p.shift_type_ids.length })}
                       </span>
                     </>
                   )}
@@ -2477,7 +2497,7 @@ function AutoFillModal({
             {result.alerts.length > 0 && (
               <div className="rounded-lg border border-danger-300 bg-danger-50 px-3 py-2.5 text-sm text-danger-700">
                 <div className="flex items-center gap-2 font-semibold">
-                  ⚠️ Please check — the schedule may not balance:
+                  {t("af.checkBalance")}
                 </div>
                 <ul className="mt-1 list-disc pl-5">
                   {result.alerts.map((a, i) => (
@@ -2487,15 +2507,16 @@ function AutoFillModal({
               </div>
             )}
             <div className="rounded-lg bg-success-50 px-3 py-2 text-sm text-success-700">
-              Filled <b>{result.filled_cells}</b> cells for{" "}
-              <b>{result.employees_filled}</b> employee(s).
+              {t("af.filledCells", {
+                cells: result.filled_cells,
+                emps: result.employees_filled,
+              })}
             </div>
 
             {result.unmet.length > 0 && (
               <div className="rounded-lg bg-danger-50 px-3 py-2 text-sm text-danger-600">
                 <div className="font-medium">
-                  {result.unmet.length} shift slot(s) could not be staffed within
-                  the rest / hour rules — fill these manually:
+                  {t("af.unmetTitle", { n: result.unmet.length })}
                 </div>
                 <ul className="mt-1 max-h-40 list-disc overflow-y-auto pl-5 text-xs">
                   {result.unmet.map((u, i) => (
@@ -2517,7 +2538,7 @@ function AutoFillModal({
 
             {result.skipped.length > 0 && (
               <div className="text-xs text-neutral-500">
-                Skipped (no day-1 shift): {result.skipped.join(", ")}
+                {t("af.skipped", { names: result.skipped.join(", ") })}
               </div>
             )}
           </div>
@@ -2525,20 +2546,13 @@ function AutoFillModal({
 
         <div className="mt-5 flex justify-end">
           <Button variant="ghost" onClick={onClose}>
-            Close
+            {t("common.close")}
           </Button>
         </div>
       </Card>
     </div>
   );
 }
-
-const ACTION_LABEL: Record<string, string> = {
-  manual_set: "Manual edit",
-  manual_clear: "Cleared",
-  auto_fill: "Auto-fill",
-  cascade: "Cascade",
-};
 
 function ClearMonthModal({
   monthLabel,
@@ -2555,6 +2569,7 @@ function ClearMonthModal({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const { t } = useI18n();
   const [keepAbsences, setKeepAbsences] = useState(true);
   const [busy, setBusy] = useState(false);
 
@@ -2564,10 +2579,10 @@ function ClearMonthModal({
       const res = await api.delete("/roster/month", {
         params: { ...params, keep_absences: keepAbsences },
       });
-      toast.success(`Cleared ${res.data.cleared} cells.`);
+      toast.success(t("clearm.cleared", { n: res.data.cleared }));
       onDone();
     } catch (e: any) {
-      toast.error(e.response?.data?.detail?.toString() || "Clear failed");
+      toast.error(e.response?.data?.detail?.toString() || t("clearm.failed"));
       setBusy(false);
     }
   };
@@ -2577,7 +2592,7 @@ function ClearMonthModal({
       <Card className="w-full max-w-md">
         <div className="flex items-start justify-between">
           <h3 className="text-lg font-semibold text-neutral-900">
-            Clear {monthLabel} {year}?
+            {t("clearm.title", { month: monthLabel, year })}
           </h3>
           <button
             onClick={onClose}
@@ -2587,9 +2602,11 @@ function ClearMonthModal({
           </button>
         </div>
         <p className="mt-2 text-sm text-neutral-600">
-          This removes the schedule for{" "}
-          <b>{scope ? scope : "all staff"}</b> in {monthLabel} {year}. This can&apos;t
-          be undone (but you can re-generate with Auto-fill).
+          {t("clearm.body", {
+            scope: scope ? scope : t("clearm.allStaff"),
+            month: monthLabel,
+            year,
+          })}
         </p>
         <label className="mt-4 flex items-start gap-2 rounded-lg bg-neutral-50 p-3 text-sm">
           <input
@@ -2600,20 +2617,19 @@ function ClearMonthModal({
           />
           <span>
             <span className="font-medium text-neutral-800">
-              Keep absences
+              {t("clearm.keepAbsences")}
             </span>
             <span className="block text-xs text-neutral-500">
-              Preserve entered vacation / sick leave / transfers. Uncheck to wipe
-              everything.
+              {t("clearm.keepAbsencesDesc")}
             </span>
           </span>
         </label>
         <div className="mt-5 flex justify-between">
           <Button variant="ghost" onClick={onClose}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button variant="danger" onClick={clear} loading={busy}>
-            Clear month
+            {t("ros.clearMonth")}
           </Button>
         </div>
       </Card>
@@ -2622,13 +2638,15 @@ function ClearMonthModal({
 }
 
 function HistoryModal({ onClose }: { onClose: () => void }) {
+  const { t } = useI18n();
   const [entries, setEntries] = useState<ChangeLogEntry[] | null>(null);
 
   useEffect(() => {
     api
       .get("/roster/history", { params: { limit: 150 } })
       .then((r) => setEntries(r.data))
-      .catch(() => toast.error("Could not load history"));
+      .catch(() => toast.error(t("hist.loadFailed")));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
@@ -2637,11 +2655,9 @@ function HistoryModal({ onClose }: { onClose: () => void }) {
         <div className="flex items-start justify-between">
           <div>
             <h3 className="text-lg font-semibold text-neutral-900">
-              Change history
+              {t("hist.title")}
             </h3>
-            <p className="text-sm text-neutral-500">
-              Recent roster modifications, most recent first.
-            </p>
+            <p className="text-sm text-neutral-500">{t("hist.subtitle")}</p>
           </div>
           <button
             onClick={onClose}
@@ -2656,14 +2672,16 @@ function HistoryModal({ onClose }: { onClose: () => void }) {
             <div className="h-24 animate-pulse rounded-lg bg-neutral-100" />
           ) : entries.length === 0 ? (
             <p className="py-6 text-center text-sm text-neutral-500">
-              No changes recorded yet.
+              {t("hist.none")}
             </p>
           ) : (
             <ul className="divide-y divide-neutral-100">
               {entries.map((e) => (
                 <li key={e.id} className="flex items-start gap-3 py-2.5 text-sm">
                   <span className="mt-0.5 shrink-0 rounded bg-neutral-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-neutral-500">
-                    {ACTION_LABEL[e.action] ?? e.action}
+                    {t(`hist.${e.action}`) !== `hist.${e.action}`
+                      ? t(`hist.${e.action}`)
+                      : e.action}
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="text-neutral-800">
@@ -2687,7 +2705,7 @@ function HistoryModal({ onClose }: { onClose: () => void }) {
 
         <div className="mt-5 flex justify-end">
           <Button variant="ghost" onClick={onClose}>
-            Close
+            {t("common.close")}
           </Button>
         </div>
       </Card>

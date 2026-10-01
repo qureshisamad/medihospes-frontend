@@ -5,12 +5,15 @@ import Link from "next/link";
 import { AlertTriangle, CalendarDays, Users } from "lucide-react";
 import api from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { useI18n } from "@/lib/i18n";
+import { monthNames } from "@/lib/dates";
 import Card from "@/components/ui/Card";
 import Badge from "@/components/ui/Badge";
 import type { EmployeeHours } from "@/lib/types";
 
 export default function DashboardPage() {
   const { user } = useAuthStore();
+  const { t, locale } = useI18n();
   const now = new Date();
   const [year] = useState(now.getFullYear());
   const [month] = useState(now.getMonth() + 1);
@@ -32,38 +35,38 @@ export default function DashboardPage() {
   }, [year, month]);
 
   const alerts = hours.filter((h) => h.approaching_limit || h.over_limit);
-  const monthName = now.toLocaleDateString("en-GB", { month: "long" });
+  const monthName = monthNames(locale)[month - 1];
 
   return (
     <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-bold text-neutral-900">
-          Welcome, {user?.first_name}
+          {t("dash.welcome", { name: user?.first_name ?? "" })}
         </h1>
         <p className="mt-1 text-neutral-500">
-          {monthName} {year} overview
+          {t("dash.overview", { month: monthName, year })}
         </p>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         <Card>
           <p className="text-xs font-medium text-neutral-500 uppercase tracking-wide">
-            Active Employees
+            {t("dash.activeEmployees")}
           </p>
           <p className="mt-2 text-2xl font-bold text-neutral-900">{empCount}</p>
         </Card>
         <Card>
           <p className="text-xs font-medium text-neutral-500 uppercase tracking-wide">
-            Hour Alerts
+            {t("dash.hourAlerts")}
           </p>
           <p className="mt-2 text-2xl font-bold text-warning-700">
             {alerts.length}
           </p>
-          <p className="text-sm text-neutral-500">approaching / over limit</p>
+          <p className="text-sm text-neutral-500">{t("dash.approachingOver")}</p>
         </Card>
         <Card>
           <p className="text-xs font-medium text-neutral-500 uppercase tracking-wide">
-            Overtime (ORE SUPP.)
+            {t("dash.overtime")}
           </p>
           <p className="mt-2 text-2xl font-bold text-neutral-900">
             {hours.reduce((s, h) => s + h.overtime_hours, 0).toFixed(1)}h
@@ -76,7 +79,7 @@ export default function DashboardPage() {
         <div className="flex items-center gap-2 mb-4">
           <AlertTriangle size={18} className="text-warning-700" />
           <h2 className="text-lg font-semibold text-neutral-900">
-            Hour Limit Alerts
+            {t("dash.hourLimitAlerts")}
           </h2>
         </div>
         {loading ? (
@@ -84,7 +87,7 @@ export default function DashboardPage() {
         ) : alerts.length === 0 ? (
           <Card>
             <p className="text-center text-neutral-500 py-6">
-              No employees near their monthly limit.
+              {t("dash.noLimitAlerts")}
             </p>
           </Card>
         ) : (
@@ -97,13 +100,16 @@ export default function DashboardPage() {
                       {h.name}
                     </span>
                     <Badge variant={h.over_limit ? "danger" : "warning"}>
-                      {h.over_limit ? "Over limit" : "Approaching"}
+                      {h.over_limit ? t("dash.overLimit") : t("dash.approaching")}
                     </Badge>
                   </div>
                   <p className="mt-1 text-xs text-neutral-500">
-                    {h.worked_hours}h worked of {h.monthly_hour_limit}h
+                    {t("dash.workedOf", {
+                      worked: h.worked_hours,
+                      limit: h.monthly_hour_limit,
+                    })}
                     {h.overtime_hours > 0 &&
-                      ` · ${h.overtime_hours}h overtime`}
+                      t("dash.overtimeSuffix", { ot: h.overtime_hours })}
                   </p>
                 </div>
                 <div className="text-sm font-semibold text-neutral-700">
@@ -117,7 +123,7 @@ export default function DashboardPage() {
 
       <div>
         <h2 className="text-lg font-semibold text-neutral-900 mb-4">
-          Quick Actions
+          {t("dash.quickActions")}
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Link href="/roster">
@@ -125,7 +131,7 @@ export default function DashboardPage() {
               <div className="flex items-center gap-3">
                 <CalendarDays size={20} className="text-primary-500" />
                 <span className="text-sm font-medium text-neutral-900">
-                  Open Monthly Roster
+                  {t("dash.openRoster")}
                 </span>
               </div>
             </Card>
@@ -135,7 +141,7 @@ export default function DashboardPage() {
               <div className="flex items-center gap-3">
                 <Users size={20} className="text-primary-500" />
                 <span className="text-sm font-medium text-neutral-900">
-                  Manage Employees
+                  {t("dash.manageEmployees")}
                 </span>
               </div>
             </Card>

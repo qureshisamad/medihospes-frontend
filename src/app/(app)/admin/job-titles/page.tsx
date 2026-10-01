@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Pencil, Plus, Briefcase, ToggleLeft, ToggleRight } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "@/lib/api";
+import { useT } from "@/lib/i18n";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
@@ -17,6 +18,7 @@ type FormData = {
 const emptyForm: FormData = { name: "", label: "" };
 
 export default function AdminJobTitlesPage() {
+  const t = useT();
   const [jobTitles, setJobTitles] = useState<JobTitleRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -29,7 +31,7 @@ export default function AdminJobTitlesPage() {
     api
       .get<JobTitleRecord[]>("/job-titles")
       .then((r) => setJobTitles(r.data))
-      .catch(() => toast.error("Failed to load job titles"))
+      .catch(() => toast.error(t("jt.loadFailed")))
       .finally(() => setLoading(false));
   };
 
@@ -55,17 +57,17 @@ export default function AdminJobTitlesPage() {
     try {
       if (editingId) {
         await api.patch(`/job-titles/${editingId}`, form);
-        toast.success("Job title updated!");
+        toast.success(t("jt.updated"));
       } else {
         await api.post("/job-titles", form);
-        toast.success("Job title created!");
+        toast.success(t("jt.created"));
       }
       setShowForm(false);
       setEditingId(null);
       setForm(emptyForm);
       fetchJobTitles();
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || "Operation failed");
+      toast.error(err.response?.data?.detail || t("common.failed"));
     } finally {
       setSubmitting(false);
     }
@@ -76,12 +78,10 @@ export default function AdminJobTitlesPage() {
       await api.patch(`/job-titles/${jt.id}`, {
         is_active: !jt.is_active,
       });
-      toast.success(
-        jt.is_active ? "Job title deactivated" : "Job title activated"
-      );
+      toast.success(jt.is_active ? t("jt.deactivated") : t("jt.activated"));
       fetchJobTitles();
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || "Failed to update");
+      toast.error(err.response?.data?.detail || t("common.failed"));
     }
   };
 
@@ -99,14 +99,12 @@ export default function AdminJobTitlesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-900">Job Titles</h1>
-          <p className="mt-1 text-neutral-500">
-            Create and manage staff job titles
-          </p>
+          <h1 className="text-2xl font-bold text-neutral-900">{t("jt.title")}</h1>
+          <p className="mt-1 text-neutral-500">{t("jt.subtitle")}</p>
         </div>
         <Button onClick={openCreateForm}>
           <Plus size={18} />
-          Add Job Title
+          {t("jt.add")}
         </Button>
       </div>
 
@@ -114,19 +112,19 @@ export default function AdminJobTitlesPage() {
       {showForm && (
         <Card>
           <h2 className="text-lg font-semibold text-neutral-900 mb-4">
-            {editingId ? "Edit Job Title" : "New Job Title"}
+            {editingId ? t("jt.editTitle") : t("jt.newTitle")}
           </h2>
           <form onSubmit={handleSubmit} className="space-y-4">
             <Input
-              label="Job Title"
-              placeholder="e.g. Senior Nurse"
+              label={t("jt.field")}
+              placeholder={t("jt.placeholder")}
               value={form.label}
               onChange={(e) => handleLabelChange(e.target.value)}
               required
             />
             <div className="flex gap-3">
               <Button type="submit" loading={submitting}>
-                {editingId ? "Save Changes" : "Create Job Title"}
+                {editingId ? t("common.saveChanges") : t("jt.createBtn")}
               </Button>
               <Button
                 type="button"
@@ -136,7 +134,7 @@ export default function AdminJobTitlesPage() {
                   setEditingId(null);
                 }}
               >
-                Cancel
+                {t("common.cancel")}
               </Button>
             </div>
           </form>
@@ -155,9 +153,7 @@ export default function AdminJobTitlesPage() {
         </div>
       ) : jobTitles.length === 0 ? (
         <Card>
-          <p className="text-center text-neutral-500 py-6">
-            No job titles yet. Create one to get started.
-          </p>
+          <p className="text-center text-neutral-500 py-6">{t("jt.none")}</p>
         </Card>
       ) : (
         <div className="space-y-3">
@@ -182,7 +178,7 @@ export default function AdminJobTitlesPage() {
                   </span>
                   {!jt.is_active && (
                     <span className="inline-flex items-center rounded-full bg-danger-50 px-2 py-0.5 text-xs font-medium text-danger-700">
-                      Inactive
+                      {t("common.inactive")}
                     </span>
                   )}
                 </div>
@@ -193,7 +189,7 @@ export default function AdminJobTitlesPage() {
                 <button
                   onClick={() => openEditForm(jt)}
                   className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 transition-colors"
-                  title="Edit"
+                  title={t("common.edit")}
                 >
                   <Pencil size={16} />
                 </button>
@@ -205,7 +201,7 @@ export default function AdminJobTitlesPage() {
                       ? "text-success-500 hover:bg-neutral-100"
                       : "text-neutral-300 hover:bg-neutral-100")
                   }
-                  title={jt.is_active ? "Deactivate" : "Activate"}
+                  title={jt.is_active ? t("emp.deactivate") : t("emp.activate")}
                 >
                   {jt.is_active ? (
                     <ToggleRight size={20} />

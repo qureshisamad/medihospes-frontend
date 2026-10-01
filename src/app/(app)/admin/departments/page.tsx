@@ -4,12 +4,14 @@ import { useEffect, useState } from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "@/lib/api";
+import { useT } from "@/lib/i18n";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import type { Department } from "@/lib/types";
 
 export default function DepartmentsPage() {
+  const t = useT();
   const [items, setItems] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -22,7 +24,7 @@ export default function DepartmentsPage() {
     api
       .get("/departments")
       .then((r) => setItems(r.data))
-      .catch(() => toast.error("Failed to load departments"))
+      .catch(() => toast.error(t("dept.loadFailed")))
       .finally(() => setLoading(false));
   };
 
@@ -45,27 +47,27 @@ export default function DepartmentsPage() {
     try {
       if (editing) {
         await api.patch(`/departments/${editing.id}`, form);
-        toast.success("Updated");
+        toast.success(t("common.updated"));
       } else {
         await api.post("/departments", form);
-        toast.success("Created");
+        toast.success(t("common.created"));
       }
       setShowForm(false);
       fetchItems();
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || "Operation failed");
+      toast.error(err.response?.data?.detail || t("common.failed"));
     } finally {
       setSubmitting(false);
     }
   };
 
   const remove = async (d: Department) => {
-    if (!confirm(`Delete department ${d.name}?`)) return;
+    if (!confirm(t("dept.deleteConfirm", { name: d.name }))) return;
     try {
       await api.delete(`/departments/${d.id}`);
       fetchItems();
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || "Failed");
+      toast.error(err.response?.data?.detail || t("common.failed"));
     }
   };
 
@@ -73,29 +75,29 @@ export default function DepartmentsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-900">Departments</h1>
-          <p className="mt-1 text-neutral-500">Administrative, OSS, Auxiliaries, COC…</p>
+          <h1 className="text-2xl font-bold text-neutral-900">{t("dept.title")}</h1>
+          <p className="mt-1 text-neutral-500">{t("dept.subtitle")}</p>
         </div>
         <Button onClick={openCreate}>
-          <Plus size={18} /> Add Department
+          <Plus size={18} /> {t("dept.add")}
         </Button>
       </div>
 
       {showForm && (
         <Card>
           <h2 className="text-lg font-semibold text-neutral-900 mb-4">
-            {editing ? "Edit Department" : "New Department"}
+            {editing ? t("dept.editTitle") : t("dept.newTitle")}
           </h2>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Input
-                label="Name"
+                label={t("common.name")}
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 required
               />
               <Input
-                label="Code"
+                label={t("common.code")}
                 value={form.code}
                 onChange={(e) => setForm({ ...form, code: e.target.value })}
                 required
@@ -103,10 +105,10 @@ export default function DepartmentsPage() {
             </div>
             <div className="flex gap-3">
               <Button type="submit" loading={submitting}>
-                {editing ? "Save Changes" : "Create"}
+                {editing ? t("common.saveChanges") : t("common.create")}
               </Button>
               <Button type="button" variant="ghost" onClick={() => setShowForm(false)}>
-                Cancel
+                {t("common.cancel")}
               </Button>
             </div>
           </form>

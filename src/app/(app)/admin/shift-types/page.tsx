@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "@/lib/api";
+import { useT } from "@/lib/i18n";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
@@ -30,6 +31,7 @@ const emptyForm: FormData = {
 };
 
 export default function ShiftTypesPage() {
+  const t = useT();
   const [items, setItems] = useState<ShiftTypeDef[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -42,7 +44,7 @@ export default function ShiftTypesPage() {
     api
       .get("/shift-types")
       .then((r) => setItems(r.data))
-      .catch(() => toast.error("Failed to load shift types"))
+      .catch(() => toast.error(t("st.loadFailed")))
       .finally(() => setLoading(false));
   };
 
@@ -83,27 +85,27 @@ export default function ShiftTypesPage() {
     try {
       if (editing) {
         await api.patch(`/shift-types/${editing.id}`, payload);
-        toast.success("Updated");
+        toast.success(t("common.updated"));
       } else {
         await api.post("/shift-types", payload);
-        toast.success("Created");
+        toast.success(t("common.created"));
       }
       setShowForm(false);
       fetchItems();
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || "Operation failed");
+      toast.error(err.response?.data?.detail || t("common.failed"));
     } finally {
       setSubmitting(false);
     }
   };
 
   const remove = async (s: ShiftTypeDef) => {
-    if (!confirm(`Deactivate shift type ${s.code}?`)) return;
+    if (!confirm(t("st.deactivateConfirm", { code: s.code }))) return;
     try {
       await api.delete(`/shift-types/${s.id}`);
       fetchItems();
     } catch {
-      toast.error("Failed");
+      toast.error(t("common.failed"));
     }
   };
 
@@ -111,32 +113,30 @@ export default function ShiftTypesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-900">Shift Types</h1>
-          <p className="mt-1 text-neutral-500">
-            Configurable shift definitions used across the roster
-          </p>
+          <h1 className="text-2xl font-bold text-neutral-900">{t("st.title")}</h1>
+          <p className="mt-1 text-neutral-500">{t("st.subtitle2")}</p>
         </div>
         <Button onClick={openCreate}>
-          <Plus size={18} /> Add Shift Type
+          <Plus size={18} /> {t("st.add")}
         </Button>
       </div>
 
       {showForm && (
         <Card>
           <h2 className="text-lg font-semibold text-neutral-900 mb-4">
-            {editing ? "Edit Shift Type" : "New Shift Type"}
+            {editing ? t("st.editTitle") : t("st.newTitle")}
           </h2>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Input
-                label="Code"
+                label={t("common.code")}
                 placeholder="A"
                 value={form.code}
                 onChange={(e) => setForm({ ...form, code: e.target.value })}
                 required
               />
               <Input
-                label="Name"
+                label={t("common.name")}
                 placeholder="Morning"
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -145,21 +145,21 @@ export default function ShiftTypesPage() {
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <Input
-                label="Start"
+                label={t("st.start")}
                 type="time"
                 value={form.start_time}
                 onChange={(e) => setForm({ ...form, start_time: e.target.value })}
                 required
               />
               <Input
-                label="End"
+                label={t("st.end")}
                 type="time"
                 value={form.end_time}
                 onChange={(e) => setForm({ ...form, end_time: e.target.value })}
                 required
               />
               <Input
-                label="Duration (h)"
+                label={t("st.durationShort")}
                 type="number"
                 step="0.25"
                 value={form.duration_hours}
@@ -177,19 +177,19 @@ export default function ShiftTypesPage() {
                   setForm({ ...form, crosses_midnight: e.target.checked })
                 }
               />
-              Crosses midnight
+              {t("st.crossesMidnight")}
             </label>
             <Input
-              label="Notes (optional)"
+              label={t("st.notes")}
               value={form.notes}
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
             />
             <div className="flex gap-3">
               <Button type="submit" loading={submitting}>
-                {editing ? "Save Changes" : "Create"}
+                {editing ? t("common.saveChanges") : t("common.create")}
               </Button>
               <Button type="button" variant="ghost" onClick={() => setShowForm(false)}>
-                Cancel
+                {t("common.cancel")}
               </Button>
             </div>
           </form>
@@ -213,8 +213,8 @@ export default function ShiftTypesPage() {
                 <div className="text-xs text-neutral-500">
                   {s.start_time.slice(0, 5)}–{s.end_time.slice(0, 5)} ·{" "}
                   {s.duration_hours}h
-                  {s.crosses_midnight && " · crosses midnight"}
-                  {!s.is_active && " · inactive"}
+                  {s.crosses_midnight && ` · ${t("st.crossesShort")}`}
+                  {!s.is_active && ` · ${t("st.inactiveShort")}`}
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">

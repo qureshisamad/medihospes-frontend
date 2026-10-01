@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Pencil, Plus, UserCheck, UserX } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "@/lib/api";
+import { useT } from "@/lib/i18n";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
@@ -26,6 +27,7 @@ const emptyForm: FormData = {
 };
 
 export default function AccountsPage() {
+  const t = useT();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -38,7 +40,7 @@ export default function AccountsPage() {
     api
       .get("/users")
       .then((r) => setUsers(r.data))
-      .catch(() => toast.error("Failed to load accounts"))
+      .catch(() => toast.error(t("usr.loadFailed")))
       .finally(() => setLoading(false));
   };
 
@@ -75,17 +77,17 @@ export default function AccountsPage() {
         };
         if (form.password) payload.password = form.password;
         await api.patch(`/users/${editing.id}`, payload);
-        toast.success("Account updated");
+        toast.success(t("usr.updated"));
       } else {
         await api.post("/users", form);
-        toast.success("Account created");
+        toast.success(t("usr.created"));
       }
       setShowForm(false);
       setEditing(null);
       setForm(emptyForm);
       fetchUsers();
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || "Operation failed");
+      toast.error(err.response?.data?.detail || t("common.failed"));
     } finally {
       setSubmitting(false);
     }
@@ -96,7 +98,7 @@ export default function AccountsPage() {
       await api.patch(`/users/${u.id}/toggle-active`);
       fetchUsers();
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || "Failed");
+      toast.error(err.response?.data?.detail || t("common.failed"));
     }
   };
 
@@ -104,31 +106,29 @@ export default function AccountsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-900">Accounts</h1>
-          <p className="mt-1 text-neutral-500">
-            Manager &amp; HR login accounts (the only system users)
-          </p>
+          <h1 className="text-2xl font-bold text-neutral-900">{t("usr.title")}</h1>
+          <p className="mt-1 text-neutral-500">{t("usr.subtitle")}</p>
         </div>
         <Button onClick={openCreate}>
-          <Plus size={18} /> Add Account
+          <Plus size={18} /> {t("usr.add")}
         </Button>
       </div>
 
       {showForm && (
         <Card>
           <h2 className="text-lg font-semibold text-neutral-900 mb-4">
-            {editing ? "Edit Account" : "New Account"}
+            {editing ? t("usr.editTitle") : t("usr.newTitle")}
           </h2>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Input
-                label="First Name"
+                label={t("emp.firstName")}
                 value={form.first_name}
                 onChange={(e) => setForm({ ...form, first_name: e.target.value })}
                 required
               />
               <Input
-                label="Last Name"
+                label={t("emp.lastName")}
                 value={form.last_name}
                 onChange={(e) => setForm({ ...form, last_name: e.target.value })}
                 required
@@ -136,14 +136,14 @@ export default function AccountsPage() {
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Input
-                label="Email"
+                label={t("usr.email")}
                 type="email"
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
                 required
               />
               <Input
-                label={editing ? "New Password (optional)" : "Password"}
+                label={editing ? t("usr.passwordEdit") : t("usr.passwordNew")}
                 type="password"
                 value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
@@ -151,7 +151,7 @@ export default function AccountsPage() {
               />
             </div>
             <div className="flex flex-col gap-1.5 max-w-xs">
-              <label className="text-sm font-medium text-neutral-700">Role</label>
+              <label className="text-sm font-medium text-neutral-700">{t("usr.role")}</label>
               <select
                 value={form.role}
                 onChange={(e) =>
@@ -159,16 +159,16 @@ export default function AccountsPage() {
                 }
                 className="h-12 rounded-lg border border-neutral-300 px-3 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
               >
-                <option value="manager">Manager</option>
-                <option value="hr">HR</option>
+                <option value="manager">{t("usr.roleManager")}</option>
+                <option value="hr">{t("usr.roleHr")}</option>
               </select>
             </div>
             <div className="flex gap-3">
               <Button type="submit" loading={submitting}>
-                {editing ? "Save Changes" : "Create Account"}
+                {editing ? t("common.saveChanges") : t("usr.createBtn")}
               </Button>
               <Button type="button" variant="ghost" onClick={() => setShowForm(false)}>
-                Cancel
+                {t("common.cancel")}
               </Button>
             </div>
           </form>
@@ -198,7 +198,7 @@ export default function AccountsPage() {
                   </span>
                   {!u.is_active && (
                     <span className="inline-flex items-center rounded-full bg-danger-50 px-2 py-0.5 text-xs font-medium text-danger-700">
-                      Inactive
+                      {t("common.inactive")}
                     </span>
                   )}
                 </div>
@@ -208,14 +208,14 @@ export default function AccountsPage() {
                 <button
                   onClick={() => openEdit(u)}
                   className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-100"
-                  title="Edit"
+                  title={t("common.edit")}
                 >
                   <Pencil size={16} />
                 </button>
                 <button
                   onClick={() => toggleActive(u)}
                   className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-100"
-                  title={u.is_active ? "Deactivate" : "Activate"}
+                  title={u.is_active ? t("emp.deactivate") : t("emp.activate")}
                 >
                   {u.is_active ? <UserX size={16} /> : <UserCheck size={16} />}
                 </button>

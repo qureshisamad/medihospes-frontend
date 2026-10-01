@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Pencil, Plus, UserCheck, UserX } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "@/lib/api";
+import { useT } from "@/lib/i18n";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
@@ -56,13 +57,14 @@ export default function EmployeesPage() {
   const [submitting, setSubmitting] = useState(false);
   const [filterSite, setFilterSite] = useState<string>("");
   const [filterJob, setFilterJob] = useState<string>("");
+  const t = useT();
 
   const fetchEmployees = () => {
     setLoading(true);
     api
       .get("/employees")
       .then((r) => setEmployees(r.data))
-      .catch(() => toast.error("Failed to load employees"))
+      .catch(() => toast.error(t("emp.loadFailed")))
       .finally(() => setLoading(false));
   };
 
@@ -139,16 +141,16 @@ export default function EmployeesPage() {
     try {
       if (editing) {
         await api.patch(`/employees/${editing.id}`, payload);
-        toast.success("Employee updated");
+        toast.success(t("emp.updated"));
       } else {
         await api.post("/employees", payload);
-        toast.success("Employee created");
+        toast.success(t("emp.created"));
       }
       setShowForm(false);
       setEditing(null);
       fetchEmployees();
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || "Operation failed");
+      toast.error(err.response?.data?.detail || t("common.failed"));
     } finally {
       setSubmitting(false);
     }
@@ -179,31 +181,29 @@ export default function EmployeesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-900">Employees</h1>
-          <p className="mt-1 text-neutral-500">
-            Scheduled staff and their contracts (no system access)
-          </p>
+          <h1 className="text-2xl font-bold text-neutral-900">{t("emp.title")}</h1>
+          <p className="mt-1 text-neutral-500">{t("emp.subtitle")}</p>
         </div>
         <Button onClick={openCreate}>
-          <Plus size={18} /> Add Employee
+          <Plus size={18} /> {t("emp.add")}
         </Button>
       </div>
 
       {showForm && (
         <Card>
           <h2 className="text-lg font-semibold text-neutral-900 mb-4">
-            {editing ? "Edit Employee" : "New Employee"}
+            {editing ? t("emp.editTitle") : t("emp.newTitle")}
           </h2>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Input
-                label="First Name"
+                label={t("emp.firstName")}
                 value={form.first_name}
                 onChange={(e) => setForm({ ...form, first_name: e.target.value })}
                 required
               />
               <Input
-                label="Last Name"
+                label={t("emp.lastName")}
                 value={form.last_name}
                 onChange={(e) => setForm({ ...form, last_name: e.target.value })}
                 required
@@ -212,14 +212,14 @@ export default function EmployeesPage() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Input
-                label="Codice Fiscale (optional)"
+                label={t("emp.codiceFiscale")}
                 value={form.codice_fiscale}
                 onChange={(e) =>
                   setForm({ ...form, codice_fiscale: e.target.value })
                 }
               />
               <Input
-                label="Location (optional)"
+                label={t("emp.location")}
                 value={form.location}
                 onChange={(e) => setForm({ ...form, location: e.target.value })}
               />
@@ -228,7 +228,7 @@ export default function EmployeesPage() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="flex flex-col gap-1.5">
                 <label className="text-sm font-medium text-neutral-700">
-                  Department
+                  {t("emp.department")}
                 </label>
                 <select
                   value={form.department_id}
@@ -238,14 +238,14 @@ export default function EmployeesPage() {
                   className={selectCls}
                   required
                 >
-                  <option value="" disabled>Select…</option>
+                  <option value="" disabled>{t("emp.selectPlaceholder")}</option>
                   {departments.map((d) => (
                     <option key={d.id} value={d.id}>{d.name}</option>
                   ))}
                 </select>
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium text-neutral-700">Site</label>
+                <label className="text-sm font-medium text-neutral-700">{t("emp.site")}</label>
                 <select
                   value={form.site_id}
                   onChange={(e) => setForm({ ...form, site_id: e.target.value })}
@@ -259,7 +259,7 @@ export default function EmployeesPage() {
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-sm font-medium text-neutral-700">
-                  Role
+                  {t("emp.role")}
                 </label>
                 <select
                   value={form.job_title}
@@ -267,7 +267,7 @@ export default function EmployeesPage() {
                   className={selectCls}
                   required
                 >
-                  <option value="" disabled>Select…</option>
+                  <option value="" disabled>{t("emp.selectPlaceholder")}</option>
                   {jobTitles.map((jt) => (
                     <option key={jt.name} value={jt.name}>{jt.label}</option>
                   ))}
@@ -278,7 +278,7 @@ export default function EmployeesPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="flex flex-col gap-1.5">
                 <label className="text-sm font-medium text-neutral-700">
-                  Contract Type
+                  {t("emp.contractType")}
                 </label>
                 <select
                   value={form.contract_type}
@@ -287,12 +287,12 @@ export default function EmployeesPage() {
                   }
                   className={selectCls}
                 >
-                  <option value="full_time">Full Time</option>
-                  <option value="part_time">Part Time</option>
+                  <option value="full_time">{t("emp.fullTime")}</option>
+                  <option value="part_time">{t("emp.partTime")}</option>
                 </select>
               </div>
               <Input
-                label="Monthly Hour Limit"
+                label={t("emp.monthlyHourLimit")}
                 type="number"
                 step="0.01"
                 value={form.monthly_hour_limit}
@@ -312,7 +312,7 @@ export default function EmployeesPage() {
                     setForm({ ...form, flexible_shift: e.target.checked })
                   }
                 />
-                Flexible shift (rotates weekly)
+                {t("emp.flexShift")}
               </label>
               <label className="flex items-center gap-2 text-sm text-neutral-700">
                 <input
@@ -322,13 +322,13 @@ export default function EmployeesPage() {
                     setForm({ ...form, flexible_location: e.target.checked })
                   }
                 />
-                Flexible location (rotates weekly)
+                {t("emp.flexLocation")}
               </label>
             </div>
 
             <div>
               <p className="text-sm font-medium text-neutral-700 mb-2">
-                Can also cover roles (cross-role substitution)
+                {t("emp.coverRoles")}
               </p>
               <div className="flex flex-wrap gap-2">
                 {jobTitles
@@ -353,10 +353,10 @@ export default function EmployeesPage() {
 
             <div className="flex gap-3">
               <Button type="submit" loading={submitting}>
-                {editing ? "Save Changes" : "Create Employee"}
+                {editing ? t("common.saveChanges") : t("emp.createBtn")}
               </Button>
               <Button type="button" variant="ghost" onClick={() => setShowForm(false)}>
-                Cancel
+                {t("common.cancel")}
               </Button>
             </div>
           </form>
@@ -371,18 +371,18 @@ export default function EmployeesPage() {
               onChange={(e) => setFilterSite(e.target.value)}
               className="h-10 rounded-lg border border-neutral-300 px-3 text-sm"
             >
-              <option value="">All sites</option>
+              <option value="">{t("emp.allSites")}</option>
               {sites.map((s) => (
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
-              <option value="none">— No site —</option>
+              <option value="none">{t("emp.noSite")}</option>
             </select>
             <select
               value={filterJob}
               onChange={(e) => setFilterJob(e.target.value)}
               className="h-10 rounded-lg border border-neutral-300 px-3 text-sm"
             >
-              <option value="">All job titles</option>
+              <option value="">{t("emp.allJobTitles")}</option>
               {jobTitles.map((j) => (
                 <option key={j.id} value={j.name}>{j.label}</option>
               ))}
@@ -396,10 +396,13 @@ export default function EmployeesPage() {
                   }}
                   className="text-sm text-neutral-500 hover:text-neutral-800"
                 >
-                  Clear filters
+                  {t("emp.clearFilters")}
                 </button>
                 <span className="text-sm text-neutral-400">
-                  {shown.length} of {employees.length}
+                  {t("emp.ofCount", {
+                    shown: shown.length,
+                    total: employees.length,
+                  })}
                 </span>
               </>
             )}
@@ -411,12 +414,12 @@ export default function EmployeesPage() {
         <div className="h-24 rounded-xl bg-neutral-100 animate-pulse" />
       ) : employees.length === 0 ? (
         <Card>
-          <p className="text-center text-neutral-500 py-6">No employees yet.</p>
+          <p className="text-center text-neutral-500 py-6">{t("emp.none")}</p>
         </Card>
       ) : shown.length === 0 ? (
         <Card>
           <p className="text-center text-neutral-500 py-6">
-            No employees match these filters.
+            {t("emp.noMatch")}
           </p>
         </Card>
       ) : (
@@ -450,21 +453,23 @@ export default function EmployeesPage() {
                   {e.site_id != null && ` · ${siteName(e.site_id)}`} ·{" "}
                   {e.contract_type.replace("_", " ")} · {e.monthly_hour_limit}h/mo
                   {e.coverable_roles.length > 0 &&
-                    ` · covers: ${e.coverable_roles.join(", ")}`}
+                    ` · ${t("emp.covers", {
+                      roles: e.coverable_roles.join(", "),
+                    })}`}
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button
                   onClick={() => openEdit(e)}
                   className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-100"
-                  title="Edit"
+                  title={t("common.edit")}
                 >
                   <Pencil size={16} />
                 </button>
                 <button
                   onClick={() => toggleActive(e)}
                   className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-100"
-                  title={e.is_active ? "Deactivate" : "Activate"}
+                  title={e.is_active ? t("emp.deactivate") : t("emp.activate")}
                 >
                   {e.is_active ? <UserX size={16} /> : <UserCheck size={16} />}
                 </button>

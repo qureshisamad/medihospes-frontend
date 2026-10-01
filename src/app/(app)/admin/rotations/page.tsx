@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { ArrowDown, ArrowUp, Pencil, Plus, Trash2, X } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "@/lib/api";
+import { useT } from "@/lib/i18n";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
@@ -15,6 +16,7 @@ import type {
 } from "@/lib/types";
 
 export default function RotationsPage() {
+  const t = useT();
   const [items, setItems] = useState<RotationPattern[]>([]);
   const [shiftTypes, setShiftTypes] = useState<ShiftTypeDef[]>([]);
   const [jobTitles, setJobTitles] = useState<JobTitleRecord[]>([]);
@@ -36,7 +38,7 @@ export default function RotationsPage() {
         setJobTitles(j.data);
         setSites(st.data);
       })
-      .catch(() => toast.error("Failed to load rotations"))
+      .catch(() => toast.error(t("rot.loadFailed")))
       .finally(() => setLoading(false));
   };
 
@@ -47,12 +49,12 @@ export default function RotationsPage() {
     jobTitles.find((j) => j.name === jt)?.label ?? jt;
 
   const remove = async (p: RotationPattern) => {
-    if (!confirm(`Delete rotation "${p.name}"?`)) return;
+    if (!confirm(t("rot.deleteConfirm", { name: p.name }))) return;
     try {
       await api.delete(`/rotations/${p.id}`);
       fetchAll();
     } catch {
-      toast.error("Failed");
+      toast.error(t("common.failed"));
     }
   };
 
@@ -61,16 +63,12 @@ export default function RotationsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-neutral-900">
-            Rotation Libraries
+            {t("rot.title")}
           </h1>
-          <p className="mt-1 text-neutral-500">
-            Define the repeating shift cycle for a staff category. The roster
-            auto-fill advances each employee through this cycle from their day-1
-            shift.
-          </p>
+          <p className="mt-1 text-neutral-500">{t("rot.subtitle")}</p>
         </div>
         <Button onClick={() => setEditing("new")}>
-          <Plus size={18} /> Add Rotation
+          <Plus size={18} /> {t("rot.add")}
         </Button>
       </div>
 
@@ -93,7 +91,7 @@ export default function RotationsPage() {
       ) : items.length === 0 ? (
         <Card>
           <p className="py-6 text-center text-neutral-500">
-            No rotation libraries yet. Add one to enable month auto-fill.
+            {t("rot.empty")}
           </p>
         </Card>
       ) : (
@@ -108,7 +106,7 @@ export default function RotationsPage() {
                 <div className="mb-2 text-xs text-neutral-500">
                   {labelOf(p.job_title)}
                   {p.site_name && ` · ${p.site_name}`}
-                  {!p.is_active && " · inactive"}
+                  {!p.is_active && ` · ${t("rot.inactive")}`}
                 </div>
                 <div className="flex flex-wrap items-center gap-1">
                   {p.shift_type_ids.map((id, i) => (
@@ -120,7 +118,7 @@ export default function RotationsPage() {
                     </span>
                   ))}
                   <span className="ml-1 text-[11px] text-neutral-400">
-                    ({p.shift_type_ids.length}-day cycle)
+                    {t("rot.cycleDays", { count: p.shift_type_ids.length })}
                   </span>
                 </div>
               </div>
@@ -161,6 +159,7 @@ function RotationEditor({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const t = useT();
   const [name, setName] = useState(pattern?.name ?? "");
   const [jobTitle, setJobTitle] = useState(
     pattern?.job_title ?? jobTitles[0]?.name ?? ""
@@ -195,9 +194,9 @@ function RotationEditor({
   };
 
   const save = async () => {
-    if (!name.trim()) return toast.error("Name is required");
-    if (!jobTitle) return toast.error("Pick a category");
-    if (cycle.length === 0) return toast.error("Add at least one shift to the palette");
+    if (!name.trim()) return toast.error(t("rot.nameRequired"));
+    if (!jobTitle) return toast.error(t("rot.pickCategory"));
+    if (cycle.length === 0) return toast.error(t("rot.addOneShift"));
     setSaving(true);
     const cov = Object.entries(coverage)
       .filter(([, n]) => Number(n) > 0)
@@ -213,14 +212,14 @@ function RotationEditor({
     try {
       if (pattern) {
         await api.put(`/rotations/${pattern.id}`, payload);
-        toast.success("Updated");
+        toast.success(t("common.updated"));
       } else {
         await api.post("/rotations", payload);
-        toast.success("Created");
+        toast.success(t("common.created"));
       }
       onSaved();
     } catch (e: any) {
-      toast.error(e.response?.data?.detail?.toString() || "Save failed");
+      toast.error(e.response?.data?.detail?.toString() || t("rot.saveFailed"));
     } finally {
       setSaving(false);
     }
@@ -230,7 +229,7 @@ function RotationEditor({
     <Card>
       <div className="mb-4 flex items-start justify-between">
         <h2 className="text-lg font-semibold text-neutral-900">
-          {pattern ? "Edit Rotation" : "New Rotation"}
+          {pattern ? t("rot.editTitle") : t("rot.newTitle")}
         </h2>
         <button onClick={onClose} className="text-neutral-400 hover:text-neutral-700">
           <X size={20} />
@@ -239,15 +238,15 @@ function RotationEditor({
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Input
-          label="Name"
-          placeholder="Educatori standard rotation"
+          label={t("common.name")}
+          placeholder={t("rot.namePlaceholder")}
           value={name}
           onChange={(e) => setName(e.target.value)}
           required
         />
         <div>
           <label className="mb-1 block text-sm font-medium text-neutral-700">
-            Category
+            {t("rot.category")}
           </label>
           <select
             value={jobTitle}
@@ -261,32 +260,29 @@ function RotationEditor({
             ))}
           </select>
           <label className="mb-1 mt-3 block text-sm font-medium text-neutral-700">
-            House / location
+            {t("rot.house")}
           </label>
           <select
             value={siteId}
             onChange={(e) => setSiteId(e.target.value)}
             className="h-10 w-full rounded-lg border border-neutral-300 px-3 text-sm"
           >
-            <option value="">All locations (category-wide)</option>
+            <option value="">{t("rot.allLocations")}</option>
             {sites.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
               </option>
             ))}
           </select>
-          <p className="mt-1 text-xs text-neutral-400">
-            Scope this rotation to one house — only that house&apos;s staff are
-            scheduled, and its coverage total is checked against that house.
-          </p>
+          <p className="mt-1 text-xs text-neutral-400">{t("rot.scopeHint")}</p>
         </div>
       </div>
 
       <p className="mt-5 mb-2 text-xs font-medium uppercase text-neutral-500">
-        Cycle (in order)
+        {t("rot.cycleOrder")}
       </p>
       {cycle.length === 0 ? (
-        <p className="text-sm text-neutral-400">No steps yet.</p>
+        <p className="text-sm text-neutral-400">{t("rot.noSteps")}</p>
       ) : (
         <div className="space-y-2">
           {cycle.map((id, i) => (
@@ -339,19 +335,14 @@ function RotationEditor({
           ))}
         </select>
         <Button variant="secondary" onClick={addStep}>
-          <Plus size={16} /> Add step
+          <Plus size={16} /> {t("rot.addStep")}
         </Button>
       </div>
 
       <p className="mt-6 mb-1 text-xs font-medium uppercase text-neutral-500">
-        Daily coverage (people needed per shift, per day)
+        {t("rot.coverageTitle")}
       </p>
-      <p className="mb-2 text-xs text-neutral-400">
-        Set how many people each shift needs each day. When any coverage is set,
-        auto-fill becomes coverage-driven — it staffs to these numbers while
-        respecting contract hours and rest between shifts. Leave all at 0 to use
-        a simple staggered cycle instead.
-      </p>
+      <p className="mb-2 text-xs text-neutral-400">{t("rot.coverageHint")}</p>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         {shiftTypes.map((s) => (
           <div
@@ -376,36 +367,31 @@ function RotationEditor({
       </div>
 
       <p className="mt-2 text-xs text-neutral-500">
-        Coverage total:{" "}
+        {t("rot.coverageTotal")}{" "}
         <b className="text-neutral-800">
           {Object.values(coverage).reduce((a, b) => a + Number(b || 0), 0)}
         </b>{" "}
-        — this should equal the number of staff in this category (include R so
-        the rest days are counted).
+        — {t("rot.coverageTotalHint")}
       </p>
 
       <div className="mt-4 max-w-xs">
         <Input
-          label="Minimum rest between shifts (hours)"
+          label={t("rot.minRest")}
           type="number"
           step="0.5"
           min="0"
           value={minRest}
           onChange={(e) => setMinRest(e.target.value)}
         />
-        <p className="mt-1 text-xs text-neutral-400">
-          Blocks a shift that starts less than this long after the previous one
-          ends (e.g. 11h stops a morning right after a night shift). Used in
-          coverage-driven mode.
-        </p>
+        <p className="mt-1 text-xs text-neutral-400">{t("rot.minRestHint")}</p>
       </div>
 
       <div className="mt-6 flex gap-3">
         <Button onClick={save} loading={saving}>
-          {pattern ? "Save Changes" : "Create"}
+          {pattern ? t("common.saveChanges") : t("common.create")}
         </Button>
         <Button variant="ghost" onClick={onClose}>
-          Cancel
+          {t("common.cancel")}
         </Button>
       </div>
     </Card>

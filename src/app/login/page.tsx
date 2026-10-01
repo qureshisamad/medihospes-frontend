@@ -5,12 +5,14 @@ import { useRouter } from "next/navigation";
 import toast, { Toaster } from "react-hot-toast";
 import api from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { useT } from "@/lib/i18n";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 
 export default function LoginPage() {
   const router = useRouter();
   const { setAuth } = useAuthStore();
+  const t = useT();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -27,10 +29,10 @@ export default function LoginPage() {
     try {
       const { data } = await api.post("/auth/login", { email, password });
       setAuth(data.user, data.access_token);
-      toast.success("Welcome back!");
+      toast.success(t("auth.welcomeToast"));
       router.push("/dashboard");
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || "Login failed");
+      toast.error(err.response?.data?.detail || t("auth.loginFailed"));
     } finally {
       setLoading(false);
     }
@@ -105,11 +107,10 @@ export default function LoginPage() {
           <h2 className="text-3xl font-bold text-primary-600">Medihospes</h2>
           <div className="mt-5 h-1 w-10 rounded-full bg-primary-500" />
           <h3 className="mt-5 text-xl font-semibold text-neutral-900">
-            Staff Scheduling Platform
+            {t("auth.tagline")}
           </h3>
           <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-neutral-500">
-            Manage shifts, track hours, and coordinate
-            your&nbsp;team&nbsp;&mdash;&nbsp;all from one dashboard.
+            {t("auth.subtitle")}
           </p>
         </div>
       </div>
@@ -123,12 +124,12 @@ export default function LoginPage() {
           </div>
 
           <h1 className="text-2xl font-bold tracking-tight text-neutral-900">
-            WELCOME BACK
+            {t("auth.welcomeBack")}
           </h1>
 
           <form onSubmit={handleSubmit} className="mt-8 space-y-5">
             <Input
-              label="Email address"
+              label={t("auth.email")}
               type="email"
               placeholder="you@medihospes.it"
               value={email}
@@ -143,7 +144,7 @@ export default function LoginPage() {
                 htmlFor="password"
                 className="text-sm font-medium text-neutral-700"
               >
-                Password
+                {t("auth.password")}
               </label>
               <div className="relative">
                 <input
@@ -165,7 +166,7 @@ export default function LoginPage() {
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium text-primary-500 hover:text-primary-700"
                 >
-                  {showPassword ? "Hide" : "Show"}
+                  {showPassword ? t("auth.hide") : t("auth.show")}
                 </button>
               </div>
               <div className="text-right">
@@ -173,20 +174,20 @@ export default function LoginPage() {
                   type="button"
                   className="text-sm text-neutral-500 hover:text-primary-600"
                 >
-                  Forgot password?
+                  {t("auth.forgot")}
                 </button>
               </div>
             </div>
 
             <Button type="submit" loading={loading} className="w-full">
-              Sign In
+              {t("auth.signIn")}
             </Button>
           </form>
 
           {/* Collapsible demo credentials */}
           <details className="mt-8 rounded-lg border border-neutral-200 bg-neutral-50">
             <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-neutral-700 select-none">
-              Demo Credentials
+              {t("auth.demoCredentials")}
             </summary>
             <div className="border-t border-neutral-200 px-4 py-3 space-y-3 text-sm">
               <div>
@@ -203,7 +204,7 @@ export default function LoginPage() {
           </details>
 
           <p className="mt-6 text-center text-xs text-neutral-500">
-            &copy; 2026 Medihospes. All rights reserved.
+            &copy; 2026 Medihospes. {t("auth.rights")}
           </p>
         </div>
       </div>

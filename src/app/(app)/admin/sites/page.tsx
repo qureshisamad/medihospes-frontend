@@ -4,12 +4,14 @@ import { useEffect, useState } from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "@/lib/api";
+import { useT } from "@/lib/i18n";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import type { Site } from "@/lib/types";
 
 export default function SitesPage() {
+  const t = useT();
   const [items, setItems] = useState<Site[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -22,7 +24,7 @@ export default function SitesPage() {
     api
       .get("/sites")
       .then((r) => setItems(r.data))
-      .catch(() => toast.error("Failed to load sites"))
+      .catch(() => toast.error(t("site.loadFailed")))
       .finally(() => setLoading(false));
   };
 
@@ -46,27 +48,27 @@ export default function SitesPage() {
     try {
       if (editing) {
         await api.patch(`/sites/${editing.id}`, payload);
-        toast.success("Updated");
+        toast.success(t("common.updated"));
       } else {
         await api.post("/sites", payload);
-        toast.success("Created");
+        toast.success(t("common.created"));
       }
       setShowForm(false);
       fetchItems();
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || "Operation failed");
+      toast.error(err.response?.data?.detail || t("common.failed"));
     } finally {
       setSubmitting(false);
     }
   };
 
   const remove = async (s: Site) => {
-    if (!confirm(`Delete site ${s.name}?`)) return;
+    if (!confirm(t("site.deleteConfirm", { name: s.name }))) return;
     try {
       await api.delete(`/sites/${s.id}`);
       fetchItems();
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || "Failed");
+      toast.error(err.response?.data?.detail || t("common.failed"));
     }
   };
 
@@ -74,45 +76,45 @@ export default function SitesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-900">Sites</h1>
-          <p className="mt-1 text-neutral-500">Physical facilities / locations</p>
+          <h1 className="text-2xl font-bold text-neutral-900">{t("site.title")}</h1>
+          <p className="mt-1 text-neutral-500">{t("site.subtitle")}</p>
         </div>
         <Button onClick={openCreate}>
-          <Plus size={18} /> Add Site
+          <Plus size={18} /> {t("site.add")}
         </Button>
       </div>
 
       {showForm && (
         <Card>
           <h2 className="text-lg font-semibold text-neutral-900 mb-4">
-            {editing ? "Edit Site" : "New Site"}
+            {editing ? t("site.editTitle") : t("site.newTitle")}
           </h2>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Input
-                label="Name"
+                label={t("common.name")}
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 required
               />
               <Input
-                label="Code"
+                label={t("common.code")}
                 value={form.code}
                 onChange={(e) => setForm({ ...form, code: e.target.value })}
                 required
               />
             </div>
             <Input
-              label="Address (optional)"
+              label={t("site.address")}
               value={form.address}
               onChange={(e) => setForm({ ...form, address: e.target.value })}
             />
             <div className="flex gap-3">
               <Button type="submit" loading={submitting}>
-                {editing ? "Save Changes" : "Create"}
+                {editing ? t("common.saveChanges") : t("common.create")}
               </Button>
               <Button type="button" variant="ghost" onClick={() => setShowForm(false)}>
-                Cancel
+                {t("common.cancel")}
               </Button>
             </div>
           </form>
