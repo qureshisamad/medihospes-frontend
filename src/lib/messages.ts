@@ -193,6 +193,10 @@ export const en: Record<string, string> = {
   "emp.monthlyHourLimit": "Monthly Hour Limit",
   "emp.flexShift": "Flexible shift (rotates weekly)",
   "emp.flexLocation": "Flexible location (rotates weekly)",
+  "emp.shiftRestriction": "Shift restriction (special employee)",
+  "emp.shiftRestrictionNone": "No restriction",
+  "emp.shiftRestrictionMorning": "Morning only",
+  "emp.shiftRestrictionHint": "Limits which shifts this person can be assigned or suggested for. \"Morning only\" offers them solely for morning gaps and blocks non-morning assignments.",
   "emp.coverRoles": "Can also cover roles (cross-role substitution)",
   "emp.createBtn": "Create Employee",
   "emp.allSites": "All sites",
@@ -257,6 +261,8 @@ export const en: Record<string, string> = {
 
   // Cell editor
   "cell.shift": "Shift",
+  "cell.shiftRestricted": "Not allowed — this employee can only work morning shifts",
+  "cell.morningOnlyNote": "Morning-only employee: only morning shifts can be assigned.",
   "cell.absence": "Absence",
   "cell.multipleDays": "Multiple days…",
   "cell.bulkHint": "Apply an absence across several days (e.g. Ferie). Pick the code, then tap the days.",
@@ -559,6 +565,10 @@ export const it: Record<string, string> = {
   "emp.monthlyHourLimit": "Limite ore mensili",
   "emp.flexShift": "Turno flessibile (ruota settimanalmente)",
   "emp.flexLocation": "Sede flessibile (ruota settimanalmente)",
+  "emp.shiftRestriction": "Restrizione turni (dipendente speciale)",
+  "emp.shiftRestrictionNone": "Nessuna restrizione",
+  "emp.shiftRestrictionMorning": "Solo mattino",
+  "emp.shiftRestrictionHint": "Limita i turni a cui questa persona può essere assegnata o proposta. \"Solo mattino\" la propone unicamente per i vuoti del mattino e blocca le assegnazioni non mattutine.",
   "emp.coverRoles": "Può coprire anche le mansioni (sostituzione tra mansioni)",
   "emp.createBtn": "Crea dipendente",
   "emp.allSites": "Tutte le sedi",
@@ -623,6 +633,8 @@ export const it: Record<string, string> = {
 
   // Editor cella
   "cell.shift": "Turno",
+  "cell.shiftRestricted": "Non consentito — questo dipendente può lavorare solo turni del mattino",
+  "cell.morningOnlyNote": "Dipendente solo mattino: si possono assegnare solo turni del mattino.",
   "cell.absence": "Assenza",
   "cell.multipleDays": "Più giorni…",
   "cell.bulkHint": "Applica un'assenza su più giorni (es. Ferie). Scegli il codice, poi tocca i giorni.",

@@ -20,6 +20,7 @@ import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import {
   ABSENCE_LABELS,
+  ABSENCE_SHORT,
   type AbsenceCode,
   type AutoFillResult,
   type ChangeLogEntry,
@@ -62,7 +63,7 @@ function deriveCell(
     cell.site_id != null &&
     cell.site_id !== viewHouse
   ) {
-    return { label: "B2", kind: "b2out", isAbsence: true };
+    return { label: ABSENCE_SHORT.B2, kind: "b2out", isAbsence: true };
   }
   const eff = cell.site_id ?? empHome;
   if (viewHouse == null || eff === viewHouse) {
@@ -75,7 +76,11 @@ function deriveCell(
       };
     }
     if (cell.absence_code) {
-      return { label: cell.absence_code, kind: "normal", isAbsence: true };
+      return {
+        label: ABSENCE_SHORT[cell.absence_code] ?? cell.absence_code,
+        kind: "normal",
+        isAbsence: true,
+      };
     }
   }
   return { label: "", kind: "empty", isAbsence: false };
@@ -83,6 +88,134 @@ function deriveCell(
 
 function daysInMonth(year: number, month: number) {
   return new Date(year, month, 0).getDate();
+}
+
+// Special-employee shift restrictions — mirrors the backend
+// (app/core/shift_rules.py). "morning" etc. is derived from each shift's own
+// times, so it adapts if shifts change; no employee is ever hard-coded.
+const RESTRICTION_ALLOWED: Record<string, Set<string>> = {
+  morning_only: new Set(["morning"]),
+};
+
+function shiftDayPart(st: ShiftTypeDef): string {
+  if ((st.duration_hours || 0) <= 0) return "rest";
+  if (st.crosses_midnight) return "night";
+  const hour = parseInt((st.start_time || "00:00").slice(0, 2), 10);
+  if (hour >= 20 || hour < 5) return "night";
+  if (hour < 12) return "morning";
+  return "afternoon";
+}
+
+/** True if an employee with `restriction` may work shift `st`. */
+function shiftAllowedFor(
+  restriction: string | null | undefined,
+  st: ShiftTypeDef
+): boolean {
+  if (!restriction) return true;
+  const allowed = RESTRICTION_ALLOWED[restriction];
+  if (!allowed) return true;
+  const part = shiftDayPart(st);
+  return part === "rest" || allowed.has(part);
+}
+
+type DayCoverage = {
+  status: "ok" | "under" | "over";
+  overCodes: string[];
+  underCodes: string[];
+  overEmpIds: Set<number>;
+};
+
+/**
+ * Per-day coverage status for a single house (ok / under / over), mirroring the
+ * main grid's rule. Used by both the primary grid and each detached compare
+ * grid so they share one green/orange/red definition.
+ *
+ * A cell counts toward `houseId` on a day when it EFFECTIVELY belongs there
+ * (its site override, else the employee's home house) — so an on-loan cell
+ * counts for the receiving house and a transferred-out one does not.
+ */
+function houseCoverageByDay(
+  houseId: number,
+  employees: Employee[],
+  cellMap: Map<string, RosterCell>,
+  rotations: RotationPattern[],
+  days: number[],
+  shiftCode: (id: number | null) => string
+): Map<number, DayCoverage> {
+  const map = new Map<number, DayCoverage>();
+  const patternFor = (e: Employee): RotationPattern | null =>
+    rotations.find(
+      (r) =>
+        r.is_active &&
+        r.coverage.length > 0 &&
+        r.job_title === e.job_title &&
+        r.site_id === houseId
+    ) ??
+    rotations.find(
+      (r) =>
+        r.is_active &&
+        r.coverage.length > 0 &&
+        r.job_title === e.job_title &&
+        r.site_id === null
+    ) ??
+    null;
+
+  // Distinct patterns among this house's home operators.
+  const patterns = [
+    ...new Map(
+      employees
+        .filter((e) => e.site_id === houseId)
+        .map((e) => patternFor(e))
+        .filter((p): p is RotationPattern => !!p)
+        .map((p) => [p.id, p])
+    ).values(),
+  ];
+  if (patterns.length === 0) return map;
+
+  for (const day of days) {
+    let over = false;
+    let under = false;
+    const overCodes = new Set<string>();
+    const underCodes = new Set<string>();
+    const overEmpIds = new Set<number>();
+    for (const pattern of patterns) {
+      const req = new Map(
+        pattern.coverage.map((c) => [c.shift_type_id, c.required_count])
+      );
+      const holders = new Map<number, number[]>();
+      for (const e of employees) {
+        const cell = cellMap.get(`${e.id}-${day}`);
+        const sid = cell?.shift_type_id;
+        if (sid == null || !req.has(sid)) continue;
+        const belongs =
+          pattern.site_id == null
+            ? patternFor(e)?.id === pattern.id
+            : (cell!.site_id ?? e.site_id ?? null) === pattern.site_id;
+        if (!belongs) continue;
+        if (!holders.has(sid)) holders.set(sid, []);
+        holders.get(sid)!.push(e.id);
+      }
+      for (const [sid, r] of req) {
+        const list = holders.get(sid) ?? [];
+        if (list.length > r) {
+          over = true;
+          overCodes.add(shiftCode(sid));
+          list.forEach((id) => overEmpIds.add(id));
+        }
+        if (list.length < r) {
+          under = true;
+          underCodes.add(shiftCode(sid));
+        }
+      }
+    }
+    map.set(day, {
+      status: over ? "over" : under ? "under" : "ok",
+      overCodes: [...overCodes],
+      underCodes: [...underCodes],
+      overEmpIds,
+    });
+  }
+  return map;
 }
 
 export default function RosterPage() {
@@ -911,6 +1044,7 @@ export default function RosterPage() {
               visibleDays={visibleDays}
               dayMeta={dayMeta}
               shiftTypes={shiftTypes}
+              rotations={rotations}
               siteName={siteName}
               onBring={(emp) => setBringing(emp)}
               onClose={() =>
@@ -1046,6 +1180,7 @@ function CompareGrid({
   visibleDays,
   dayMeta,
   shiftTypes,
+  rotations,
   siteName,
   onBring,
   onClose,
@@ -1061,6 +1196,7 @@ function CompareGrid({
     { dow: number; holiday: string | null; isRed: boolean }
   >;
   shiftTypes: ShiftTypeDef[];
+  rotations: RotationPattern[];
   siteName: Map<number, string>;
   onBring: (emp: Employee) => void;
   onClose: () => void;
@@ -1078,6 +1214,23 @@ function CompareGrid({
     }
     return m;
   }, [cells]);
+
+  // Per-day coverage status for this detached house (same green/orange/red
+  // rule as the main grid), shown as a colored footer row.
+  const coverageByDay = useMemo(
+    () =>
+      houseCoverageByDay(
+        viewHouse,
+        employees,
+        cellMap,
+        rotations,
+        visibleDays,
+        shiftCode
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [viewHouse, employees, cellMap, rotations, visibleDays, shiftTypes]
+  );
+  const hasCoverage = coverageByDay.size > 0;
 
   return (
     <Card padding="sm" className="overflow-x-auto border-dashed">
@@ -1222,7 +1375,72 @@ function CompareGrid({
               );
             })}
           </tbody>
+          {hasCoverage && (
+            <tfoot>
+              <tr>
+                <td className="sticky left-0 z-10 bg-white border-t-2 border-neutral-300 px-2 py-1.5 text-[11px] font-semibold text-neutral-600 whitespace-nowrap">
+                  {t("ros.dayCoverage")}
+                </td>
+                {visibleDays.map((d) => {
+                  const cov = coverageByDay.get(d);
+                  const st = cov?.status ?? null;
+                  const bg =
+                    st === "ok"
+                      ? "bg-success-500"
+                      : st === "under"
+                      ? "bg-warning-500"
+                      : st === "over"
+                      ? "bg-danger-500"
+                      : "bg-neutral-100";
+                  const sym =
+                    st === "ok"
+                      ? "✓"
+                      : st === "under"
+                      ? "↓"
+                      : st === "over"
+                      ? "↑"
+                      : "";
+                  const title =
+                    st === "ok"
+                      ? t("cov.complete")
+                      : st === "under"
+                      ? t("cov.shortList", { codes: cov!.underCodes.join(", ") })
+                      : st === "over"
+                      ? t("cov.overList", { codes: cov!.overCodes.join(", ") })
+                      : "";
+                  return (
+                    <td
+                      key={d}
+                      title={title}
+                      className={
+                        "border-t-2 border-l border-neutral-200 text-center h-6 text-[11px] font-bold text-white " +
+                        bg
+                      }
+                    >
+                      {sym}
+                    </td>
+                  );
+                })}
+              </tr>
+            </tfoot>
+          )}
         </table>
+      )}
+      {hasCoverage && (
+        <div className="mt-2 flex flex-wrap items-center gap-4 text-[11px] text-neutral-500">
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-3 w-3 rounded bg-success-500" />{" "}
+            {t("cov.ok")}
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-3 w-3 rounded bg-warning-500" />{" "}
+            {t("cov.under")}
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-3 w-3 rounded bg-danger-500" />{" "}
+            {t("cov.over")}
+          </span>
+        </div>
       )}
     </Card>
   );
@@ -1855,23 +2073,37 @@ function CellEditor({
           {t("cell.shift")}
         </p>
         <div className="flex flex-wrap gap-2">
-          {shiftTypes.map((s) => (
-            <button
-              key={s.id}
-              disabled={saving}
-              onClick={() => assignShift(s.id)}
-              className={
-                "rounded-lg border px-3 py-1.5 text-sm font-medium " +
-                (existing?.shift_type_id === s.id
-                  ? "border-primary-500 bg-primary-50 text-primary-700"
-                  : "border-neutral-300 hover:bg-neutral-50")
-              }
-              title={`${s.start_time.slice(0, 5)}–${s.end_time.slice(0, 5)} (${s.duration_hours}h)`}
-            >
-              {s.code}
-            </button>
-          ))}
+          {shiftTypes.map((s) => {
+            const allowed = shiftAllowedFor(employee.shift_restriction, s);
+            return (
+              <button
+                key={s.id}
+                disabled={saving || !allowed}
+                onClick={() => assignShift(s.id)}
+                className={
+                  "rounded-lg border px-3 py-1.5 text-sm font-medium " +
+                  (!allowed
+                    ? "cursor-not-allowed border-neutral-200 text-neutral-300"
+                    : existing?.shift_type_id === s.id
+                    ? "border-primary-500 bg-primary-50 text-primary-700"
+                    : "border-neutral-300 hover:bg-neutral-50")
+                }
+                title={
+                  allowed
+                    ? `${s.start_time.slice(0, 5)}–${s.end_time.slice(0, 5)} (${s.duration_hours}h)`
+                    : t("cell.shiftRestricted")
+                }
+              >
+                {s.code}
+              </button>
+            );
+          })}
         </div>
+        {employee.shift_restriction === "morning_only" && (
+          <p className="mt-1.5 text-[11px] text-warning-700">
+            {t("cell.morningOnlyNote")}
+          </p>
+        )}
 
         {overWarn && (
           <div className="mt-3 rounded-lg border border-warning-300 bg-warning-50 p-3 text-sm">
@@ -1918,7 +2150,7 @@ function CellEditor({
               }
               title={t(`abs.${code}`)}
             >
-              {code}
+              {ABSENCE_SHORT[code] ?? code}
             </button>
           ))}
           <button
@@ -1949,7 +2181,7 @@ function CellEditor({
                       : "border-neutral-300 hover:bg-neutral-100")
                   }
                 >
-                  {code}
+                  {ABSENCE_SHORT[code] ?? code}
                 </button>
               ))}
             </div>

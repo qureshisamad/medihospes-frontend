@@ -15,6 +15,21 @@ export const ABSENCE_LABELS: Record<AbsenceCode, string> = {
   SOL: "Solidarity (20H)",
 };
 
+/**
+ * Short labels shown IN the roster cell (Italian company abbreviations, like
+ * shift codes they are not translated). The grid shows these instead of the
+ * raw enum code — e.g. "Fe" for B. Keep in sync with the backend
+ * ABSENCE_SHORT map in app/core/absences.py.
+ */
+export const ABSENCE_SHORT: Record<AbsenceCode, string> = {
+  B: "Fe",
+  B1: "Mal",
+  B2: "TT",
+  C1: "SF",
+  C2: "SV",
+  SOL: "SOL",
+};
+
 /** Kept for the Badge component (shift codes are free-form strings now). */
 export type ShiftType = string;
 
@@ -74,6 +89,8 @@ export interface Employee {
   monthly_hour_limit: number;
   flexible_shift: boolean;
   flexible_location: boolean;
+  /** Special-employee restriction, e.g. "morning_only"; null = none. */
+  shift_restriction: string | null;
   is_active: boolean;
   created_at: string;
   coverable_roles: string[];

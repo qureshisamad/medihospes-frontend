@@ -27,6 +27,7 @@ type FormData = {
   monthly_hour_limit: string;
   flexible_shift: boolean;
   flexible_location: boolean;
+  shift_restriction: string;
   coverable_roles: string[];
 };
 
@@ -42,6 +43,7 @@ const emptyForm: FormData = {
   monthly_hour_limit: "130.35",
   flexible_shift: false,
   flexible_location: false,
+  shift_restriction: "",
   coverable_roles: [],
 };
 
@@ -116,6 +118,7 @@ export default function EmployeesPage() {
       monthly_hour_limit: String(e.monthly_hour_limit),
       flexible_shift: e.flexible_shift,
       flexible_location: e.flexible_location,
+      shift_restriction: e.shift_restriction || "",
       coverable_roles: e.coverable_roles,
     });
     setShowForm(true);
@@ -136,6 +139,7 @@ export default function EmployeesPage() {
       monthly_hour_limit: parseFloat(form.monthly_hour_limit),
       flexible_shift: form.flexible_shift,
       flexible_location: form.flexible_location,
+      shift_restriction: form.shift_restriction || null,
       coverable_roles: form.coverable_roles,
     };
     try {
@@ -326,6 +330,27 @@ export default function EmployeesPage() {
               </label>
             </div>
 
+            <div className="max-w-xs">
+              <label className="mb-1 block text-sm font-medium text-neutral-700">
+                {t("emp.shiftRestriction")}
+              </label>
+              <select
+                value={form.shift_restriction}
+                onChange={(e) =>
+                  setForm({ ...form, shift_restriction: e.target.value })
+                }
+                className="h-10 w-full rounded-lg border border-neutral-300 px-3 text-sm"
+              >
+                <option value="">{t("emp.shiftRestrictionNone")}</option>
+                <option value="morning_only">
+                  {t("emp.shiftRestrictionMorning")}
+                </option>
+              </select>
+              <p className="mt-1 text-xs text-neutral-400">
+                {t("emp.shiftRestrictionHint")}
+              </p>
+            </div>
+
             <div>
               <p className="text-sm font-medium text-neutral-700 mb-2">
                 {t("emp.coverRoles")}
@@ -446,6 +471,11 @@ export default function EmployeesPage() {
                   )}
                   {e.flexible_location && (
                     <span className="text-[10px] text-info-500">flex-loc</span>
+                  )}
+                  {e.shift_restriction === "morning_only" && (
+                    <span className="inline-flex items-center rounded-full bg-warning-50 px-2 py-0.5 text-[10px] font-medium text-warning-700">
+                      {t("emp.shiftRestrictionMorning")}
+                    </span>
                   )}
                 </div>
                 <div className="mt-0.5 text-xs text-neutral-500">
