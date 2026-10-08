@@ -29,6 +29,7 @@ type FormData = {
   flexible_location: boolean;
   shift_restriction: string;
   coverable_roles: string[];
+  excluded_site_ids: number[];
 };
 
 const emptyForm: FormData = {
@@ -45,6 +46,7 @@ const emptyForm: FormData = {
   flexible_location: false,
   shift_restriction: "",
   coverable_roles: [],
+  excluded_site_ids: [],
 };
 
 export default function EmployeesPage() {
@@ -120,6 +122,7 @@ export default function EmployeesPage() {
       flexible_location: e.flexible_location,
       shift_restriction: e.shift_restriction || "",
       coverable_roles: e.coverable_roles,
+      excluded_site_ids: e.excluded_site_ids ?? [],
     });
     setShowForm(true);
   };
@@ -141,6 +144,7 @@ export default function EmployeesPage() {
       flexible_location: form.flexible_location,
       shift_restriction: form.shift_restriction || null,
       coverable_roles: form.coverable_roles,
+      excluded_site_ids: form.excluded_site_ids,
     };
     try {
       if (editing) {
@@ -175,6 +179,15 @@ export default function EmployeesPage() {
       coverable_roles: f.coverable_roles.includes(role)
         ? f.coverable_roles.filter((r) => r !== role)
         : [...f.coverable_roles, role],
+    }));
+  };
+
+  const toggleExcludedSite = (id: number) => {
+    setForm((f) => ({
+      ...f,
+      excluded_site_ids: f.excluded_site_ids.includes(id)
+        ? f.excluded_site_ids.filter((s) => s !== id)
+        : [...f.excluded_site_ids, id],
     }));
   };
 
@@ -352,6 +365,32 @@ export default function EmployeesPage() {
             </div>
 
             <div>
+              <p className="text-sm font-medium text-neutral-700 mb-1">
+                {t("emp.excludedSites")}
+              </p>
+              <p className="mb-2 text-xs text-neutral-400">
+                {t("emp.excludedSitesHint")}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {sites.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => toggleExcludedSite(s.id)}
+                    className={
+                      "rounded-lg border px-3 py-1.5 text-sm " +
+                      (form.excluded_site_ids.includes(s.id)
+                        ? "border-danger-500 bg-danger-50 text-danger-700"
+                        : "border-neutral-300 hover:bg-neutral-50")
+                    }
+                  >
+                    {s.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
               <p className="text-sm font-medium text-neutral-700 mb-2">
                 {t("emp.coverRoles")}
               </p>
@@ -475,6 +514,18 @@ export default function EmployeesPage() {
                   {e.shift_restriction === "morning_only" && (
                     <span className="inline-flex items-center rounded-full bg-warning-50 px-2 py-0.5 text-[10px] font-medium text-warning-700">
                       {t("emp.shiftRestrictionMorning")}
+                    </span>
+                  )}
+                  {e.excluded_site_ids?.length > 0 && (
+                    <span
+                      className="inline-flex items-center rounded-full bg-danger-50 px-2 py-0.5 text-[10px] font-medium text-danger-700"
+                      title={e.excluded_site_ids
+                        .map((id) => siteName(id))
+                        .join(", ")}
+                    >
+                      {t("emp.excludedSitesBadge", {
+                        n: e.excluded_site_ids.length,
+                      })}
                     </span>
                   )}
                 </div>

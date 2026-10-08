@@ -91,6 +91,8 @@ export interface Employee {
   flexible_location: boolean;
   /** Special-employee restriction, e.g. "morning_only"; null = none. */
   shift_restriction: string | null;
+  /** Site ids this employee may NOT be scheduled at (location restriction). */
+  excluded_site_ids: number[];
   is_active: boolean;
   created_at: string;
   coverable_roles: string[];
